@@ -1,0 +1,53 @@
+xml: ../assets/left_hand.xml                
+obj_mesh_root: ../assets/object            
+antipodal_dir: ../results/longshort_pairs_fc 
+scan_db: ../scan_from_csv1.npy               
+antipodal_prefix: "pairs_"
+distal_a_body: if_distal_link
+distal_b_body: th_distal_link 
+out_dir: results/eval_rohand
+th_csv: ../th_curve.csv
+if_csv: ../if_curve.csv
+
+lego_list_json: list.json        
+pairs_already_scaled: true
+default_scale: 0.001
+default_density: 1000.0
+scales:
+  plate3_3_tan: 0.001
+  brick2_10_medium_lavender: 0.001
+
+site1: if_distal_site_ball
+site2: tf_distal_site_ball
+freejoint: root
+motors: [th_proximal_link, th_root_link, if_proximal_link]
+hand_body_substrs: ["if_", "th_"]   
+
+zero_gravity: true             
+r1: 0.005
+r2: 0.0055
+tol: 1.0e-4
+tol_fallback: 5.0e-4
+
+ramp_steps: 120
+settle_steps: 200
+trans_steps: 10
+rot_steps: 10
+
+penetration_skip_threshold: 1.0e-4
+penetration_check_steps: 10
+
+tighten_joints: [if_proximal_link]
+tighten_signs: "-1"     
+tighten_cmd: 0.1
+tighten_steps: 60
+wait_after_tighten: 60
+
+force_N: 0.05
+force_steps: 300
+force_ramp_ratio: 0.2
+trans_thre: 0.005
+angle_thre: 0.2
+
+topk: -1        # 每个 LEGO eval多少（-1=全评）
+friction: [0.6, 0.02, 0.001]

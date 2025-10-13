@@ -1,0 +1,299 @@
+<mujoco model="rohand_left">
+<option timestep="0.001" solver="Newton" iterations="100" integrator="implicitfast"
+        gravity="0 0 -9.81" sdf_iterations="50" sdf_initpoints="50" ccd_iterations="50"/>
+
+  <default>
+    <default class="robot">
+      <default class="visual">
+        <geom contype="0" conaffinity="0" group="2"/>
+      </default>
+      <default class="collision">
+        <geom material="collision_material" condim="4" contype="1" conaffinity="1" priority="1" group="3" solref="0.005 1" friction="0.1 0.001 0.001"/>
+      </default>
+      <joint damping="0.1" armature="0.001" frictionloss="0.0"/>
+    </default>
+  </default>
+
+  <compiler angle="radian" meshdir="." balanceinertia="true"/>
+  <size nconmax="5000" njmax="5000"/>
+
+  <worldbody>
+    <body name="base_link" pos="0 0 0.04701411" childclass="robot">
+     <!-- <joint name="root" type="free"/> -->
+      <inertial pos="-0.0600175965544457 0.00173674741822627 -0.000192816298917277" mass="0.0559618850522869" diaginertia="2.5023287948442e-05 3.35110967631856e-05 5.16602242361807e-05"/>
+      <!-- <geom name="base_link_collision" type="sdf" mesh="base_link.STL" class="collision"/> -->
+      <geom name="base_link_visual"    type="mesh" mesh="base_link.STL" material="default_material" class="visual"/>
+      <site name="base_site_if" pos="-0.11976 0.03521 0.0028896" size="0.001"/>
+      <site name="base_site_mf" pos="-0.12326 0.01021 0.0074296" size="0.001" />
+      <site name="base_site_rf" pos="-0.12076 -0.00921 0.0065896" size="0.001"/>
+      <site name="base_site_lf" pos="-0.1171 -0.02731 0.004496" size="0.001"/>
+
+      <!-- <body name="if_slider_link" pos="-0.074396 0.026655 -0.0097434">
+        <inertial pos="-0.013831882124786 0.00115456036788866 0.00000118634508444434" mass="0.00048911221771827" diaginertia="4.60387241005875e-09 3.82302567697763e-08 3.92692763677803e-08"/>
+        <joint name="if_slider_link" type="slide" range="0 0.02"  axis="0.99655 -0.083049 0"/>
+        <geom name="if_slider_link_collision" type="sdf" mesh="if_slider_link.STL" class="collision"/>
+        <geom name="if_slider_link_visual"    type="mesh" mesh="if_slider_link.STL" material="default_material" class="visual"/>
+        <body name="if_slider_abpart_link" pos="-0.02861 0.0058839 -0.00030477">
+          <inertial pos="-0.0107864188255614 -0.00263940611058047 -0.00013913226482987" mass="0.000419595822746572" diaginertia="1.75917796784222e-09 5.73351660617891e-09 6.20984539277726e-09"/>
+          <joint name="if_slider_abpart_link" type="hinge" axis="0.082734 0.99276 -0.087135"/>
+          <geom name="if_slider_abpart_link_collision" type="sdf" mesh="if_slider_abpart_link.STL" class="collision"/>
+          <geom name="if_slider_abpart_link_visual"    type="mesh" mesh="if_slider_abpart_link.STL" material="default_material" class="visual"/>
+
+
+        </body>
+      </body> -->
+
+      <body name="if_proximal_link" pos="-0.11211 0.037738 -0.0018032">
+        <inertial pos="-0.0180401934810981 -0.00594318681409525 -0.00214940799795961" mass="0.00154987032874225" diaginertia="6.20379278686707e-08 1.54247144894286e-07 1.69493178080606e-07"/>
+        <joint name="if_proximal_link" type="hinge" range="-1.5 0 " axis="0.082428 0.99278 -0.087177"  />
+        <geom name="if_proximal_link_collision" friction="0.01 0.01 0.001" type="sdf" mesh="if_proximal_link.STL" class="collision"/>
+        <geom name="if_proximal_link_visual"    type="mesh" mesh="if_proximal_link.STL" material="default_material" class="visual"/>
+        <body name="if_distal_link" pos="-0.035776 0.0028401 -0.0014841">
+          <inertial pos="-0.0242417824734568 -0.00576634331785805 -0.00601095840966076" mass="0.0042269383122795" diaginertia="9.82682026496382e-08 5.59160651416525e-07 5.40423175644971e-07"/>
+          <joint name="if_distal_link" type="hinge" axis="0.082428 0.99278 -0.087177"/>
+          <geom name="if_distal_link_collision" type="sdf" mesh="if_distal_link.STL" class="collision"/>
+          <geom name="if_distal_link_visual"    type="mesh" mesh="if_distal_link.STL" material="default_material" class="visual"/>
+          <site name="if_distal_site" pos="-.003 -0.007 -0.007" size="0.001" />
+          <site name="if_distal_site_a" pos="-.044 -0.005 -0.016" size="0.0000001" rgba="1 1 0 1"/>
+          <site name="if_distal_site_ball" pos="-.042 -0.005 -0.012" size="0.005" rgba="1 1 0 1"/>
+
+        </body>
+      </body>
+
+
+      <body name="if_connecting_link" pos="-0.11976 0.03521 0.0028896">
+        <inertial pos="-0.0154529830298678 -0.00300880066164064 -0.00700719055867323" mass="0.000197692348310411" diaginertia="4.07223389206408e-09 2.70145409777339e-08 2.30774689922598e-08" />
+        <joint name="if_connecting_link" type="hinge" axis="0.082428 0.99278 -0.087177" />
+        <!-- <geom name="if_connecting_link_collision" type="sdf"  mesh="if_connecting_link.STL" class="collision" /> -->
+        <geom name="if_connecting_link_visual" type="mesh" mesh="if_connecting_link.STL" material="default_material" class="visual" />
+        <site name="if_rod_a" pos="0 0 0" size="0.001" />
+        <site name="if_rod_b" pos="-0.0312 -0.0016 -0.0133" size="0.001"/>      
+      </body>
+     <!-- <body name="mf_slider_link" pos="-0.076974 0.010077 -0.0054756">
+        <inertial pos="-0.013878747077534 0.000185328089726128 8.62274037224248E-08" mass="0.000489112305392741" diaginertia="4.3759626088488e-09 3.84519195282787e-08 3.92755372638914e-08" />
+        <joint name="mf_slider_link" type="slide" range="0 0.019" axis="0.99991 -0.013228 0.00010039" />
+        <geom name="mf_slider_link_collision" type="sdf" mesh="mf_slider_link.STL" class="collision" />
+        <geom name="mf_slider_link_visual" type="mesh" mesh="mf_slider_link.STL" material="default_material" class="visual" />
+        <body name="mf_slider_abpart_link" pos="-0.028951 0.0038841 0">
+          <inertial pos="-0.0105596379857566 -0.00336124088471215 -0.000727211243021131" mass="0.000419595848489683" diaginertia="1.78090578752483e-09 5.74728451250454e-09 6.17435090190752e-09" />
+          <joint name="mf_slider_abpart_link" type="hinge" axis="0.013228 0.99991 -7.2594E-05" />
+          <geom name="mf_slider_abpart_link_collision" type="sdf" mesh="mf_slider_abpart_link.STL" class="collision" />
+          <geom name="mf_slider_abpart_link_visual" type="mesh" mesh="mf_slider_abpart_link.STL" material="default_material" class="visual" />
+        </body>
+      </body> -->
+      <body name="mf_proximal_link" pos="-0.11587 0.017792 0.0031262">
+        <inertial pos="-0.0199797334891479 -0.00693582390555647 -0.00446806914321724" mass="0.00189508780970619" diaginertia="7.78059237332349e-08 2.3404709814833e-07 2.46206545141109e-07" />
+        <joint name="mf_proximal_link" type="hinge" axis="0.013244 0.99991 4.2699E-05" />
+        <geom name="mf_proximal_link_visual" type="mesh" mesh="mf_proximal_link.STL" material="default_material" class="visual" />
+        <body name="mf_distal_link" pos="-0.040851 0.00054126 -0.0035367">
+          <inertial pos="-0.0237385164850207 -0.00688494079178076 -0.00679220850075163" mass="0.0042269628029676" diaginertia="9.80058679932351e-08 5.60810951030143e-07 5.39048309363154e-07" />
+          <joint name="mf_distal_link" type="hinge" axis="0.013244 0.99991 2.1055E-05" />
+          <geom name="mf_distal_link_collision" type="sdf" mesh="mf_distal_link.STL" class="collision" />
+          <geom name="mf_distal_link_visual" type="mesh" mesh="mf_distal_link.STL" material="default_material" class="visual" />
+          <site name="mf_distal_site" pos="-.003 -0.00681 -0.0068" size="0.001" />
+
+        </body>
+      </body>
+      <body name="mf_connecting_link" pos="-0.12334 0.014341 0.0075259">
+        <inertial pos="-0.0173259476733337 -0.00342060961323609 -0.00839513952079128" mass="0.000216184518525667" diaginertia="5.71913358376963e-09 3.85063451062604e-08 3.28217930253539e-08" />
+        <joint name="mf_connecting_link" type="hinge" axis="0.013244 0.99991 2.1054E-05" />
+        <geom name="mf_connecting_link_visual" type="mesh" mesh="mf_connecting_link.STL" material="default_material" class="visual" />
+        <site name="mf_rod_a" pos="0 -0.004 0" size="0.001" />
+        <site name="mf_rod_b" pos="-0.03632 -0.0027 -0.0148" size="0.001" /> 
+      </body>
+      <!-- <body name="rf_slider_link" pos="-0.074498 -0.0072492 -0.0062204">
+        <inertial pos="-0.0138578672671499 -0.000783242488329478 1.59405782883433E-07" mass="0.000489112303078988" diaginertia="4.48016318899327e-09 3.834771866864e-08 3.92755371230416e-08" />
+        <joint name="rf_slider_link" type="slide" range="0 0.019" axis="0.9984 0.056554 9.5082E-05" />
+        <geom name="rf_slider_link_collision" type="sdf" mesh="rf_slider_link.STL" class="collision" />
+        <geom name="rf_slider_link_visual" type="mesh" mesh="rf_slider_link.STL" material="default_material" class="visual" />
+        <body name="rf_slider_abpart_link" pos="-0.029152 0.0018551 0">
+          <inertial pos="-0.0103066808663681 -0.00409004748705058 -0.000613628353270297" mass="0.000419595841745906" diaginertia="1.77645736028942e-09 5.73522260886412e-09 6.19086108929486e-09" />
+          <joint name="rf_slider_abpart_link" type="hinge" axis="-0.056554 0.9984 -7.942E-05" />
+          <geom name="rf_slider_abpart_link_collision" type="sdf" mesh="rf_slider_abpart_link.STL" class="collision" />
+          <geom name="rf_slider_abpart_link_visual" type="mesh" mesh="rf_slider_abpart_link.STL" material="default_material" class="visual" />
+        </body>
+      </body> -->
+      <body name="rf_proximal_link" pos="-0.11364 -0.0022565 0.0023761">
+        <inertial pos="-0.0169549089835899 -0.00817221852533054 -0.00333737800773532" mass="0.00154985371268108" diaginertia="6.16430441306532e-08 1.54505752798055e-07 1.69627005510225e-07" />
+        <joint name="rf_proximal_link" type="hinge" axis="-0.05658 0.9984 2.102E-05" />
+        <geom name="rf_proximal_link_collision" type="sdf" mesh="rf_proximal_link.STL" class="collision" />
+        <geom name="rf_proximal_link_visual" type="mesh" mesh="rf_proximal_link.STL" material="default_material" class="visual" />
+        <body name="rf_distal_link" pos="-0.035766 -0.0020268 -0.0026198">
+          <inertial pos="-0.022696111452442 -0.00849649226724736 -0.00835478756750876" mass="0.00422730983553646" diaginertia="1.16496262714894e-07 5.59567957009536e-07 5.22034079641838e-07" />
+          <joint name="rf_distal_link" type="hinge" axis="-0.05658 0.9984 2.102E-05" />
+          <geom name="rf_distal_link_collision" type="sdf" mesh="rf_distal_link.STL" class="collision" />
+          <geom name="rf_distal_link_visual" type="mesh" mesh="rf_distal_link.STL" material="default_material" class="visual" />
+          <site name="rf_distal_site" pos="-.00212 -0.00791 -0.0072" size="0.001" />
+       
+        </body>
+      </body>
+      <body name="rf_connecting_link" pos="-0.12076 -0.00721 0.006896">
+        <inertial pos="-0.0182151281756033 0.0164706758619828 -0.00574282817068492" mass="0.000197692354337264" diaginertia="4.92838052690555e-09 2.70004879799029e-08 2.22353755729308e-08" />
+        <joint name="rf_connecting_link" type="hinge" axis="-0.05658 0.9984 2.102E-05" />
+
+        <geom name="rf_connecting_link_visual" type="mesh" mesh="rf_connecting_link.STL" material="default_material" class="visual" />
+        <site name="rf_rod_a" pos="0 0 0" size="0.001" />
+        <site name="rf_rod_b" pos="-0.03102 -0.005 -0.0145" size="0.001" /> 
+      </body>
+      <!-- <body name="lf_slider_link" pos="-0.070847 -0.024182 -0.0087399">
+        <inertial pos="-0.0144167564876969 -0.00171205925869156 3.81352530457336E-07" mass="0.000510662528391611" diaginertia="4.9365491500063e-09 3.79994364556094e-08 3.93595008041777e-08" />
+        <joint name="lf_slider_link" type="slide" range="0 0.019" axis="0.99301 0.11803 8.2704E-05" />
+        <geom name="lf_slider_link_collision" type="sdf" mesh="lf_slider_link.STL" class="collision" />
+        <geom name="lf_slider_link_visual" type="mesh" mesh="lf_slider_link.STL" material="default_material" class="visual" />
+        <body name="lf_slider_abpart_link" pos="-0.029209 4.0116E-05 0.00030326">
+          <inertial pos="-0.0100358483607182 -0.00463982379624506 -0.00104236140669513" mass="0.000419595826532552" diaginertia="1.82121196852816e-09 5.71210051864852e-09 6.16922773505283e-09" />
+          <joint name="lf_slider_abpart_link" type="hinge" axis="-0.11759 0.98923 0.08715" />
+          <geom name="lf_slider_abpart_link_collision" type="sdf" mesh="lf_slider_abpart_link.STL" class="collision" />
+          <geom name="lf_slider_abpart_link_visual" type="mesh" mesh="lf_slider_abpart_link.STL" material="default_material" class="visual" />
+        </body>
+      </body> -->
+      <body name="lf_proximal_link" pos="-0.11032 -0.022406 0.00045133">
+        <inertial pos="-0.0146179038371213 -0.00865933449081624 -0.00404765240562847" mass="0.00136661208486985" diaginertia="5.65517835433433e-08 1.12186752570062e-07 1.27246247373284e-07" />
+        <joint name="lf_proximal_link" type="hinge" axis="-0.11759 0.98923 0.087106" />
+        <geom name="lf_proximal_link_collision" type="sdf" mesh="lf_proximal_link.STL" class="collision" />
+        <geom name="lf_proximal_link_visual" type="mesh" mesh="lf_proximal_link.STL" material="default_material" class="visual" />
+        <body name="lf_distal_link" pos="-0.031562 -0.0034532 -0.003392">
+          <inertial pos="-0.014370796499536 -0.008390245956126 -0.00657795990320131" mass="0.00262042947413116" diaginertia="5.14865241597797e-08 1.52166371803539e-07 1.45327848752015e-07" />
+          <joint name="lf_distal_link" type="hinge" axis="-0.11759 0.98923 0.087106" />
+          <geom name="lf_distal_link_collision" type="sdf" mesh="lf_distal_link.STL" class="collision" />
+          <geom name="lf_distal_link_visual" type="mesh" mesh="lf_distal_link.STL" material="default_material" class="visual" />
+          <site name="lf_distal_site" pos="-.0021 -0.0057 -0.0075" size="0.001" />
+
+        </body>
+      </body>
+      <body name="lf_connecting_link" pos="-0.11723 -0.027174 0.0045247">
+        <inertial pos="-0.0121624488477445 -0.00439577388851597 -0.00839995412997622" mass="0.000176980932045691" diaginertia="4.93706927346499e-09 2.00115768299624e-08 1.52537402638674e-08" />
+        <joint name="lf_connecting_link" type="hinge" axis="-0.11759 0.98924 0.087085" />
+        <geom name="lf_connecting_link_visual" type="mesh" mesh="lf_connecting_link.STL" material="default_material" class="visual" />
+        <site name="lf_rod_a" pos="0 0 0" size="0.001" />
+        <site name="lf_rod_b" pos="-0.0267 -0.0045 -0.015" size="0.001" />     
+      </body>
+      <body name="th_root_link" pos="-0.024656 0.019554 -0.022107">
+        <inertial pos="-0.0182055985206398 0.0062027796983799 -0.00602504691008154" mass="0.00217782401907458" diaginertia="1.92048266024776e-07 1.97385210109919e-07 2.25369870005598e-07" />
+        <joint name="th_root_link" type="hinge" range="0 1.57" axis="-0.97616 0.01293 -0.21667" />
+        <geom name="th_root_link_collision" type="sdf" mesh="th_root_link.STL" class="collision" />
+        <geom name="th_root_link_visual" type="mesh" mesh="th_root_link.STL" material="default_material" class="visual" />
+        <body name="th_proximal_link" pos="-0.025097 0.021667 -0.015581" quat="0.7799833070933437 0.010018767616566913 0.6255953965455758 0.012492588689274685">
+          <inertial pos="-0.00770018684827107 0.011788302524247 -0.0170644760229541" mass="0.00501318922026079" diaginertia="2.07793414915373e-06 1.50672511173197e-06 6.75564984341833e-07" />
+          <joint name="th_proximal_link" type="hinge" axis="1 0 0" />
+          <geom name="th_proximal_link_collision" type="sdf" margin="0.001" mesh="th_proximal_link.STL" class="collision" />
+          <geom name="th_proximal_link_visual" type="mesh" mesh="th_proximal_link.STL" material="default_material" class="visual" />
+          <body name="th_slider_link" pos="-0.0076999999999972 0.00276927591433551 -0.000236666241639902" quat="0.7799950587623404 -0.010020895284749523 -0.6255806744035385 -0.01249438981460207">
+            <inertial pos="-0.0119352170255541 0.00825053452681337 -0.00238381819650775" mass="0.000966918573679237" diaginertia="4.78147534251827e-08 5.57308268866282e-08 6.02170914313473e-08" />
+            <joint name="th_slider_link" type="slide" springref="0" stiffness="60000" damping="1" range="0 0.01" axis="-0.761977793105663 0.630282689066857 -0.148773568473957" />
+            <geom name="th_slider_link_collision" type="sdf" mesh="th_slider_link.STL" class="collision" />
+            <geom name="th_slider_link_visual" type="mesh" mesh="th_slider_link.STL" material="default_material" class="visual" />
+            <body name="th_connecting_link" pos="-0.027697 0.024088 -0.010084">
+              <inertial pos="-0.00506957828509727 0.00225299091651826 0.0036519163338174" mass="0.000334843777726033" diaginertia="2.97269012068611e-09 5.01992883871934e-09 4.99074064887975e-09" />
+              <joint name="th_connecting_link" type="hinge" axis="0.21699 0.032029 -0.97565" />
+              <geom name="th_connecting_link_collision" type="sdf" mesh="th_connecting_link.STL" class="collision" />
+              <geom name="th_connecting_link_visual" type="mesh" mesh="th_connecting_link.STL" material="default_material" class="visual" />
+              <site name="th_connecting_site" pos="-0.0095 0.0042 0.0032" size="0.001" />
+
+            </body>
+          </body>
+          <body name="th_distal_link" pos="-0.00010351 0.023735 -0.046849" quat="0.779981602957747 -0.010021051411947122 -0.6255974557940889 -0.012494033777185262">
+            <inertial pos="-0.00470321656966432 0.0108131649563329 0.00709251414154711" mass="0.00509494222453049" diaginertia="2.72112772656721e-07 2.01886474111303e-07 2.43694502794788e-07" />
+            <joint name="th_distal_link" type="hinge" axis="0.21698 0.032029 -0.97565" />
+            <geom name="th_distal_link_collision" type="sdf" mesh="th_distal_link.STL" class="collision" />
+            <geom name="th_distal_link_visual" type="mesh" mesh="th_distal_link.STL" material="default_material" class="visual" />
+            <site name="th_site" pos="0.007 0.0071 0.01" size="0.001" />
+            <site name="tf_distal_site_a" pos="-0.016 0.02 0.006" size="0.001" rgba="1 1 0 1"/>
+            <site name="tf_distal_site_ball" pos="-0.012 0.018 0.006" size="0.0055" rgba="1 1 0 1"/>
+
+          </body>
+        </body>
+      </body>
+    </body>
+
+    <light pos="0 0 2." dir="0 0 -1" directional="true"/>
+  </worldbody>
+<!-- <tendon>
+  <fixed name="gripper_tendon">
+    <joint joint="if_proximal_link" coef="1.43"/>
+    <joint joint="th_proximal_link" coef="1"/>
+  </fixed>
+</tendon> -->
+<equality>
+  <connect site1="base_site_if" site2="if_rod_a"  solref="0.001 1" solimp="0.9 0.95 0.001"/>
+  <connect site1="if_distal_site" site2="if_rod_b"  solref="0.001 1" solimp="0.9 0.95 0.001"/>
+
+  <connect site1="base_site_mf" site2="mf_rod_a"  solref="0.001 1" solimp="0.9 0.95 0.001"/>
+  <connect site1="mf_distal_site" site2="mf_rod_b"  solref="0.001 1" solimp="0.9 0.95 0.001"/>
+
+  <connect site1="base_site_rf" site2="rf_rod_a"  solref="0.001 1" solimp="0.99 0.999 0.001"/>
+  <connect site1="rf_distal_site" site2="rf_rod_b"  solref="0.001 1" solimp="0.9 0.95 0.001"/>
+  
+  <connect site1="base_site_lf" site2="lf_rod_a"  solref="0.001 1" solimp="0.9 0.95 0.001"/>
+  <connect site1="lf_distal_site" site2="lf_rod_b"  solref="0.001 1" solimp="0.9 0.95 0.001"/>
+  
+  <connect site1="th_site" site2="th_connecting_site"
+          solref="0.001 1" solimp="0.99 0.999 0.001"/>
+
+</equality>
+  <asset>
+    <material name="default_material" rgba="0.7 0.7 0.7 1" />
+    <material name="collision_material" rgba="1.0 0.28 0.1 0.9" />
+    <mesh name="base_link.STL" file="meshes_l/base_link.STL" />
+    <mesh name="if_slider_link.STL" file="meshes_l/if_slider_link.STL" />
+    <mesh name="if_slider_abpart_link.STL" file="meshes_l/if_slider_abpart_link.STL" inertia="shell" />
+    <mesh name="if_proximal_link.STL" file="meshes_l/if_proximal_link.STL" />
+    <mesh name="if_distal_link.STL" file="meshes_l/if_distal_link.STL" />
+    <mesh name="if_connecting_link.STL" file="meshes_l/if_connecting_link.STL" />
+    <mesh name="mf_slider_link.STL" file="meshes_l/mf_slider_link.STL" />
+    <mesh name="mf_slider_abpart_link.STL" file="meshes_l/mf_slider_abpart_link.STL" />
+    <mesh name="mf_proximal_link.STL" file="meshes_l/mf_proximal_link.STL" />
+    <mesh name="mf_distal_link.STL" file="meshes_l/mf_distal_link.STL" />
+    <mesh name="mf_connecting_link.STL" file="meshes_l/mf_connecting_link.STL" />
+    <mesh name="rf_slider_link.STL" file="meshes_l/rf_slider_link.STL" />
+    <mesh name="rf_slider_abpart_link.STL" file="meshes_l/rf_slider_abpart_link.STL" inertia="shell" />
+    <mesh name="rf_proximal_link.STL" file="meshes_l/rf_proximal_link.STL" />
+    <mesh name="rf_distal_link.STL" file="meshes_l/rf_distal_link.STL" />
+    <mesh name="rf_connecting_link.STL" file="meshes_l/rf_connecting_link.STL" />
+    <mesh name="lf_slider_link.STL" file="meshes_l/lf_slider_link.STL" />
+    <mesh name="lf_slider_abpart_link.STL" file="meshes_l/lf_slider_abpart_link.STL" />
+    <mesh name="lf_proximal_link.STL" file="meshes_l/lf_proximal_link.STL" />
+    <mesh name="lf_distal_link.STL" file="meshes_l/lf_distal_link.STL" />
+    <mesh name="lf_connecting_link.STL" file="meshes_l/lf_connecting_link.STL" />
+    <mesh name="th_root_link.STL" file="meshes_l/th_root_link.STL" />
+    <mesh name="th_proximal_link.STL" file="meshes_l/th_proximal_link.STL" />
+    <mesh name="th_slider_link.STL" file="meshes_l/th_slider_link.STL" />
+    <mesh name="th_connecting_link.STL" file="meshes_l/th_connecting_link.STL" />
+    <mesh name="th_distal_link.STL" file="meshes_l/th_distal_link.STL" />
+  </asset>
+
+  <actuator>
+  <position name="if_proximal_motor" joint="if_proximal_link"
+            kp="200" kv="10"          
+            ctrlrange="-0.7 0" ctrllimited="true"
+            forcerange="-500 500" forcelimited="true"
+            gear="1"/>
+  <position name="mf_proximal_motor" joint="mf_proximal_link"
+            kp="200" kv="10"          
+            ctrlrange="-1.4 0" ctrllimited="true"
+            forcerange="-500 500" forcelimited="true"
+            gear="1"/>
+  <position name="rf_proximal_motor" joint="rf_proximal_link"
+            kp="200" kv="10"          
+            ctrlrange="-1.4 0" ctrllimited="true"
+            forcerange="-500 500" forcelimited="true"
+            gear="1"/>
+  <position name="lf_proximal_motor" joint="lf_proximal_link"
+            kp="200" kv="10"          
+            ctrlrange="-1.4 0" ctrllimited="true"
+            forcerange="-500 500" forcelimited="true"
+            gear="1"/>
+  <!-- <position name="th_slider_motor" joint="th_slider_link"
+            kp="1000" kv="10"
+            ctrlrange="0 0.02" ctrllimited="true"
+            forcerange="-4000 4000" forcelimited="true"/> -->
+ <position name="th_proximal_motor" joint="th_proximal_link"
+            kp="200" kv="10"          
+            ctrlrange="-1.57 0" ctrllimited="true"
+            forcerange="-500 500" forcelimited="true"
+            gear="1"/>
+    <position name="th_root_link" joint="th_root_link" ctrlrange="0.7 1.57" forcerange="-4000 4000"/>
+  <!-- <motor name="gripper_motor" tendon="gripper_tendon"
+         gear="200" forcerange="-200 200" ctrlrange="-0.55 0"/> -->
+  </actuator>
+</mujoco>
