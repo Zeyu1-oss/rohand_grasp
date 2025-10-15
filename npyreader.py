@@ -13,7 +13,6 @@ def main():
     print(f"Type: {type(data)}")
     print(f"Shape: {getattr(data, 'shape', 'N/A')}\n")
 
-    # 用 pprint 打印更清晰
     pprint.pprint(data)
 
 if __name__ == "__main__":

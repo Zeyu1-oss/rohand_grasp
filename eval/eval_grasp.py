@@ -632,15 +632,28 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
     lego_bid = mj.mj_name2id(model, mj.mjtObj.mjOBJ_BODY, "lego")
     if lego_bid < 0:
         raise RuntimeError("body 'lego' not found")
+
     mass = float(getattr(model, "body_subtreemass", model.body_mass)[lego_bid])
-    g_mag = float(np.linalg.norm(model.opt.gravity))  
-    auto_force_N = mass * g_mag
+
+    g_cfg = float(cfg.get("g_override", 0.0))
+    g_val = float(np.linalg.norm(model.opt.gravity))
+    if g_cfg > 0:
+        g_val = g_cfg
+    elif g_val == 0.0:
+        g_val = 9.81  # 合理默认
+
+    volume_est = mass / density if density > 0 else float("nan")
 
     use_auto_force = bool(cfg.get("force_use_mass_g", True))
+    force_scale   = float(cfg.get("force_scale", 1.0))
+    auto_force_N  = mass * g_val * force_scale
+
     force_N = auto_force_N if use_auto_force else float(cfg.get("force_N", 0.05))
 
-    print(f"[force] mass={mass:.6f} kg | |g|={g_mag:.6f} m/s^2 | "
+    print(f"[force] mass={mass:.6f} kg | g={g_val:.6f} m/s^2 | "
+        f"volume_est(m^3)={volume_est:.6e} | scale={force_scale:.3f} | "
         f"force_N={'AUTO' if use_auto_force else 'CFG'}={force_N:.6f} N")
+
     try:
         act_ids5 = [_act_id_of_joint(model, nm) for nm in joint_names5]
     except Exception as e:
@@ -1008,12 +1021,10 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
                       f"| max_dp={worst['dp']:.6f}, max_da={worst['da']:.4f}rad")
                 pair_fail += 1
 
-            # 计算 root 位姿（世界与 LEGO 系）
             root7_world = data.qpos[qadr_free:qadr_free+7].copy()
             root_body = _body_name_of_joint(model, cfg.get("freejoint", "root"))
             root7_in_lego = rel_pose7_bodyA_wrt_bodyB(model, data, root_body, "lego")
 
-            # 仅保存成功的
             if status == "success":
                 out = {
                     "status": status,
