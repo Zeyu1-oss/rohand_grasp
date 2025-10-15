@@ -653,6 +653,7 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
     scene.add_lego_object(mesh_target, friction=friction, density=density,
                           body_name="lego", freejoint_name="lego_freejoint")
     model, data = scene.model, scene.data
+    print("[info] MuJoCo timestep =", model.opt.timestep)
 
     try:
         act_ids5 = [_act_id_of_joint(model, nm) for nm in joint_names5]
@@ -682,6 +683,28 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
     site1 = resolve_site_name(model, cfg.get("site1","if_distal_site_ball"))
     site2 = resolve_site_name(model, cfg.get("site2","tf_distal_site_ball"))
     qadr_free = _free_qadr(model, cfg.get("freejoint","root"))
+    # ===== Root-lock: 对齐后锁定 root，自此以后所有 step 都保持锁定 =====
+    root_lock_enabled = False
+    root_lock_pose7 = None
+    root_vel_slice = slice(qadr_free, qadr_free+6)  # freejoint 6个速度自由度
+
+    def lock_root_pose():
+        nonlocal root_lock_enabled, root_lock_pose7
+        root_lock_pose7 = data.qpos[qadr_free:qadr_free+7].copy()
+        root_lock_enabled = True
+        print("[lock] root locked at pose7 =", np.array2string(root_lock_pose7, precision=6))
+
+    def _enforce_root_lock():
+        if not root_lock_enabled:
+            return
+        data.qpos[qadr_free:qadr_free+7] = root_lock_pose7
+        data.qvel[root_vel_slice] = 0.0
+
+    def _step_with_root_lock(n=1):
+        for _ in range(int(n)):
+            _enforce_root_lock()
+            mj.mj_step(model, data)
+            _enforce_root_lock()
 
     distal_a_body = str(cfg.get("distal_a_body", "if_distal_link"))
     distal_b_body = str(cfg.get("distal_b_body", "th_distal_link"))
@@ -698,27 +721,28 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
     approach_gap = float(cfg.get("approach_gap", 2e-4))
 
     def draw_spheres(p1_b, p2_b, c1_b, c2_b):
-        if viewer is None: return
-        pL, RL, _ = lego_pose_from_body(model, data, "lego")
-        p1w = world_from_local(p1_b, pL, RL)
-        p2w = world_from_local(p2_b, pL, RL)
-        c1w = world_from_local(c1_b, pL, RL)
-        c2w = world_from_local(c2_b, pL, RL)
-        s1w = get_site_pos(model, data, site1)
-        s2w = get_site_pos(model, data, site2)
-        scn = viewer.user_scn; scn.ngeom = 0
-        def _sphere(pos, r, rgba):
-            g = scn.geoms[scn.ngeom]
-            mj.mjv_initGeom(g, mj.mjtGeom.mjGEOM_SPHERE, np.array([r,r,r],np.float32), pos,
-                            np.eye(3,dtype=np.float32).reshape(-1), rgba)
-            scn.ngeom += 1
-        _sphere(p1w, 0.0025, (1,1,0,0.9))
-        _sphere(p2w, 0.0025, (1,1,0,0.9))
-        _sphere(c1w, r1, (0,1,0,0.6))
-        _sphere(c2w, r2, (0,1,0,0.6))
-        _sphere(s1w, max(1e-4,0.6*r1), (1,0,0,0.9))
-        _sphere(s2w, max(1e-4,0.6*r2), (1,0,0,0.9))
-        _safe_sync(viewer, show_interval, 0, viewer_sleep)
+        pass
+        # if viewer is None: return
+        # pL, RL, _ = lego_pose_from_body(model, data, "lego")
+        # p1w = world_from_local(p1_b, pL, RL)
+        # p2w = world_from_local(p2_b, pL, RL)
+        # c1w = world_from_local(c1_b, pL, RL)
+        # c2w = world_from_local(c2_b, pL, RL)
+        # s1w = get_site_pos(model, data, site1)
+        # s2w = get_site_pos(model, data, site2)
+        # scn = viewer.user_scn; scn.ngeom = 0
+        # def _sphere(pos, r, rgba):
+        #     g = scn.geoms[scn.ngeom]
+        #     mj.mjv_initGeom(g, mj.mjtGeom.mjGEOM_SPHERE, np.array([r,r,r],np.float32), pos,
+        #                     np.eye(3,dtype=np.float32).reshape(-1), rgba)
+        #     scn.ngeom += 1
+        # _sphere(p1w, 0.0025, (1,1,0,0.9))
+        # _sphere(p2w, 0.0025, (1,1,0,0.9))
+        # _sphere(c1w, r1, (0,1,0,0.6))
+        # _sphere(c2w, r2, (0,1,0,0.6))
+        # _sphere(s1w, max(1e-4,0.6*r1), (1,0,0,0.9))
+        # _sphere(s2w, max(1e-4,0.6*r2), (1,0,0,0.9))
+        # _safe_sync(viewer, show_interval, 0, viewer_sleep)
 
     def _read_joint(model, data, jname: str) -> float:
         jid = _jid(model, jname)
@@ -755,7 +779,7 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
                     newd = _interp_csv_saturated(th_x, th_y, newp)
                     _set_joint_qpos_clamped(model, data, th_dist_name, newd)
 
-            mj.mj_step(model, data)
+            # mj.mj_step(model, data)
             fn_if, fn_th = sum_two_finger_normal_forces(
                 model, data, if_substrs=if_substrs, th_substrs=th_substrs
             )
@@ -1007,9 +1031,12 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
                 continue
 
             scene.set_lego_collision_enabled(True, body_prefix="lego")
+            lock_root_pose()
+
             for pp in range(penetration_check_steps):
-                mj.mj_step(model, data)
+                _step_with_root_lock(1)
                 _safe_sync(viewer, show_interval, pp, viewer_sleep)
+
             min_dist_now = min_hand_lego_contact_dist(model, data, ("if_","th_","tf_"), "lego")
 
             if min_dist_now <= -0.001:
@@ -1108,7 +1135,12 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
                     f"| max_dp={worst['dp']:.6f}, max_da={worst['da']:.4f}rad")
                 pair_fail += 1
 
-            root7 = data.qpos[qadr_free:qadr_free+7].copy()
+            root7_world = data.qpos[qadr_free:qadr_free+7].copy()
+
+            # 计算 root 在 LEGO 坐标系下的位姿（返回 [px,py,pz, qw,qx,qy,qz] —— wxyz）
+            root_body = _body_name_of_joint(model, cfg.get("freejoint", "root"))
+            root7_in_lego = rel_pose7_bodyA_wrt_bodyB(model, data, root_body, "lego")
+
             out = {
                 "status": status,
                 "lego": name_stem,
@@ -1118,24 +1150,11 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
                 "qpos_names": joint_names5,
                 "ctrl_dist": dist_db,
                 "ctrl_error": float(abs(dist_db - L_match)),
-                # "r1": r1, "r2": r2, "green_distance": L,
                 "errors_align": {"e1": e1, "e2": e2},
-                "root_pose7": root7.tolist(),
-                # "tighten": tighten_info,
-                # "stability": {
-                #     "pass_all": bool(all_ok),
-                #     "force_N": force_N, "force_steps": force_steps, "force_ramp_ratio": force_ramp,
-                #     "per_direction": per_dir,
-                #     "worst_case": {"dir_index": int(worst["idx"]),
-                #                 "dir": worst["dir"],
-                #                 "max_dp": float(worst["dp"]),
-                #                 "max_da": float(worst["da"])}
-                # },
-                # "fail_reason": None if status=="success" else "stability_over_threshold",
-                # "fail_detail": None if status=="success" else {
-                    # "type": "stability_over_threshold",
-                    # "worst": worst
-                # }
+
+                "root_pose7_in_lego(wxyz)": root7_in_lego.tolist(),
+
+                # "root_pose7_in_world(wxyz)": root7_world.tolist(),
             }
             if status == "success":
               np.save(os.path.join(out_dir, f"pair{k:06d}_ctrl{db_idx:06d}.succ.npy"),
@@ -1197,7 +1216,7 @@ def main():
     if not lego_names:
         print("lego_list_json 为空"); sys.exit(1)
 
-    print("评估模式:scan结果设定 5 个关节 qpos + 慢速 CSV 联动加紧（两指力过阈值后才扰动，带可视化刷新）")
+    print("scan结果设定 5 个关节 qpos CSV 联动加紧")
     print(f"FIXED_SCALE = {FIXED_SCALE}")
 
     for i, name in enumerate(lego_names, start=1):

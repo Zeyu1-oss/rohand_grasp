@@ -265,7 +265,7 @@
   <actuator>
   <position name="if_proximal_motor" joint="if_proximal_link"
             kp="200" kv="10"          
-            ctrlrange="-0.7 0" ctrllimited="true"
+            ctrlrange="-0.75 0" ctrllimited="true"
             forcerange="-500 500" forcelimited="true"
             gear="1"/>
   <position name="mf_proximal_motor" joint="mf_proximal_link"

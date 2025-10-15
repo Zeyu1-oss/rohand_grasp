@@ -1,7 +1,7 @@
 xml: ../assets/left_hand1.xml
 obj_mesh_root: ../assets/object
 antipodal_dir: ../results/longshort_pairs_fc
-scan_db: ../scan_from_csv.npy
+scan_db: ../scan_from_csv1.npy
 antipodal_prefix: "pairs_"
 out_dir: results/eval_rohand
 lego_list_json: list.json
@@ -26,7 +26,7 @@ pairs_already_scaled: true
 
 zero_gravity: true
 friction: [0.6, 0.02, 0.001]
-default_density: 10
+default_density: 1000
 
 approach_gap: 2.0e-4  
 
@@ -49,7 +49,7 @@ tighten_steps: 100
 contact_force_eps: 0.5
 
 force_N: 0.08
-force_steps: 20
+force_steps: 1000
 force_ramp_ratio: 0.2
 trans_thre: 0.01  #m
 

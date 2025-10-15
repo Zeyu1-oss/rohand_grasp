@@ -77,7 +77,6 @@ def _np(x: torch.Tensor):
     return x.detach().cpu().numpy()
 
 
-# --------------------- Ferrari–Canny ε 评估 ---------------------
 class ForceClosureEps:
     def __init__(self, mu=0.4, m_dirs=8, device=None, dtype=torch.float32, eps_max_iters=40, eps_tol=1e-6):
         self.mu = float(mu)
@@ -546,7 +545,7 @@ if __name__ == "__main__":
     parser.add_argument("--out_dir", type=str, default="results/longshort_pairs_fc")
 
     parser.add_argument("--scale", type=float, default=0.0004)
-    parser.add_argument("--num_rays", type=int, default=20000)
+    parser.add_argument("--num_rays", type=int, default=200)
     parser.add_argument("--max_workers", type=int, default=1)
 
     parser.add_argument("--mu", type=float, default=0.4)

@@ -229,7 +229,7 @@ def parse_args():
     ap.add_argument("--shards", type=int, default=1)
     ap.add_argument("--shard-id", type=int, default=0)
     ap.add_argument("--checkpoint-every", type=int, default=0, help="按 th_root 维度每多少步落一次检查点")
-    ap.add_argument("--out", default="scan_from_csv.npy")
+    ap.add_argument("--out", default="scan_from_csv1.npy")
     ap.add_argument("--dtype", choices=["float32","float64"], default="float32")
     return ap.parse_args()
 
