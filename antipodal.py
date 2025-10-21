@@ -1,19 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-AABB All-Faces Sampler + Force-Closure (Ferrari-Canny ε)
-- 在 AABB 的 6 个对置面上均匀格点采样射线
-- 每条射线取【首命中、末命中】两点作为对向点对（LEGO 局部坐标系）
-- 过滤：首点法向需与该面外法向一致、末点与对面外法向一致（阈值由 --aabb_normal_align_deg 控制）
-- 计算 Ferrari–Canny ε（摩擦锥离散 + Batched Frank-Wolfe）后按阈值筛
-- 保存丰富信息：
-  - pairs(K,2,3)、normals(K,2,3)
-  - face_ids(K,2) ∈ {0:x-,1:x+,2:y-,3:y+,4:z-,5:z+}
-  - pair_axis(K,) ∈ {0:x,1:y,2:z}
-  - face_uv: {p1(K,2), p2(K,2)}  // 点在各自 AABB 面内的 2D 坐标（[0,1]）
-  - epsilon(K,), outward(K,3)（首面对外法向）
-  - meta: scale、aabb{min,max}、参数记录
-"""
 
 import os
 import json
@@ -101,7 +87,6 @@ class ForceClosureEps:
         t2 = self._unit(torch.linalg.cross(axis, t1, dim=-1))
         return t1, t2
 
-    # p/n/com: (B,3) -> Wp: (B,6,m_dirs)
     def contact_wrench_rays_batch(self, p: torch.Tensor, n: torch.Tensor, com: torch.Tensor) -> torch.Tensor:
         t1, t2 = self._tangent_basis_batch(n)
         r = (p - com).unsqueeze(1)
@@ -114,18 +99,15 @@ class ForceClosureEps:
         Wp = torch.cat([f, tau], dim=-1)
         return Wp.permute(0, 2, 1).contiguous()
 
-    # Batched Frank–Wolfe，返回 eps: (B,)
     def epsilon_fw_batched(self, W: torch.Tensor) -> torch.Tensor:
         with torch.no_grad():
             B, _, M = W.shape
             col_norm2 = (W * W).sum(dim=1)
-            j = torch.argmin(col_norm2, dim=1)                         # init: 最短列
-            lam = torch.zeros(B, M, device=self.device, dtype=self.dtype)
-            lam.scatter_(1, j.view(B, 1), 1.0)
+            j = torch.argmin(col_norm2, dim=1)
             x = W.gather(2, j.view(B, 1, 1).expand(B, 6, 1)).squeeze(2)
             prev_obj = 0.5 * (x * x).sum(dim=1)
             for _ in range(self.eps_max_iters):
-                g = torch.bmm(W.transpose(1, 2), x.unsqueeze(2)).squeeze(2)  # (B,M)
+                g = torch.bmm(W.transpose(1, 2), x.unsqueeze(2)).squeeze(2)
                 j = torch.argmin(g, dim=1)
                 wj = W.gather(2, j.view(B, 1, 1).expand(B, 6, 1)).squeeze(2)
                 d = wj - x
@@ -133,8 +115,6 @@ class ForceClosureEps:
                 num = (x * (x - wj)).sum(dim=1)
                 gamma = torch.where(denom > 1e-18, torch.clamp(num / denom, 0.0, 1.0), torch.zeros_like(denom))
                 x = x + gamma.unsqueeze(1) * d
-                lam = lam * (1.0 - gamma).unsqueeze(1)
-                lam.scatter_add_(1, j.view(B, 1), gamma.view(B, 1))
                 obj = 0.5 * (x * x).sum(dim=1)
                 rel = torch.abs(obj - prev_obj) / torch.clamp(prev_obj, min=1.0)
                 if torch.max(rel).item() <= self.eps_tol:
@@ -143,11 +123,10 @@ class ForceClosureEps:
             return torch.linalg.norm(x, dim=1)
 
 
-# --------------------- 采样（六个对置面） ---------------------
 class AllFacesSampler:
     def __init__(self,
                  aabb_margin_ratio: float = 0.0,
-                 face_jitter: float = 0.0,
+                 face_jitter: float = 0.01,
                  rand_rotate: bool = False,
                  convexify: str = "hull",
                  seed: int = 42):
@@ -159,11 +138,6 @@ class AllFacesSampler:
 
     def gen_rays(self, mesh: trimesh.Trimesh, total_rays: int
                  ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """
-        返回：
-          origins(R,3), dirs(R,3), face_ids(R,), outward(R,3), bb_min(3), bb_max(3)
-        其中 face_ids ∈ {0:x-,1:x+,2:y-,3:y+,4:z-,5:z+}
-        """
         if self.rand_rotate:
             R = trimesh.transformations.random_rotation_matrix()[:3, :3]
             c = mesh.centroid
@@ -185,14 +159,13 @@ class AllFacesSampler:
         bb_min -= margin; bb_max += margin
         ext = bb_max - bb_min
 
-        # 六个面：0:x-,1:x+,2:y-,3:y+,4:z-,5:z+；inward 指向 AABB 内部
         faces = [
-            (np.array([bb_min[0], 0, 0]),  np.array([ 1, 0, 0]), np.array([0,1,0]), np.array([0,0,1]), (ext[1], ext[2])),  # 0 x- inward +x
-            (np.array([bb_max[0], 0, 0]),  np.array([-1, 0, 0]), np.array([0,1,0]), np.array([0,0,1]), (ext[1], ext[2])),  # 1 x+ inward -x
-            (np.array([0, bb_min[1], 0]),  np.array([ 0, 1, 0]), np.array([1,0,0]), np.array([0,0,1]), (ext[0], ext[2])),  # 2 y- inward +y
-            (np.array([0, bb_max[1], 0]),  np.array([ 0,-1, 0]), np.array([1,0,0]), np.array([0,0,1]), (ext[0], ext[2])),  # 3 y+ inward -y
-            (np.array([0, 0, bb_min[2]]),  np.array([ 0, 0, 1]), np.array([1,0,0]), np.array([0,1,0]), (ext[0], ext[1])),  # 4 z- inward +z
-            (np.array([0, 0, bb_max[2]]),  np.array([ 0, 0,-1]), np.array([1,0,0]), np.array([0,1,0]), (ext[0], ext[1])),  # 5 z+ inward -z
+            (np.array([bb_min[0], 0, 0]),  np.array([ 1, 0, 0]), np.array([0,1,0]), np.array([0,0,1]), (ext[1], ext[2])),
+            (np.array([bb_max[0], 0, 0]),  np.array([-1, 0, 0]), np.array([0,1,0]), np.array([0,0,1]), (ext[1], ext[2])),
+            (np.array([0, bb_min[1], 0]),  np.array([ 0, 1, 0]), np.array([1,0,0]), np.array([0,0,1]), (ext[0], ext[2])),
+            (np.array([0, bb_max[1], 0]),  np.array([ 0,-1, 0]), np.array([1,0,0]), np.array([0,0,1]), (ext[0], ext[2])),
+            (np.array([0, 0, bb_min[2]]),  np.array([ 0, 0, 1]), np.array([1,0,0]), np.array([0,1,0]), (ext[0], ext[1])),
+            (np.array([0, 0, bb_max[2]]),  np.array([ 0, 0,-1]), np.array([1,0,0]), np.array([0,1,0]), (ext[0], ext[1])),
         ]
 
         def make_anchor(i, anc):
@@ -211,7 +184,7 @@ class AllFacesSampler:
         for i_face in selected_faces:
             anc, inward, u_axis, v_axis, (W, H) = faces[i_face]
             inward = inward / (np.linalg.norm(inward) + 1e-12)
-            outward_face = -inward  # AABB 外法向
+            outward_face = -inward
             n = int(np.ceil(np.sqrt(per_face)))
             m = int(np.ceil(per_face / max(n, 1)))
             du = W / max(n, 1)
@@ -231,14 +204,9 @@ class AllFacesSampler:
                     j = self.face_jitter
                     o_rot = o_rot + (self.rng.random(3) * 2 - 1) * j * max(du, dv)
                 o = invR_pt(o_rot)
-                d = invR_vec(inward)
-                d = d / (np.linalg.norm(d) + 1e-12)
+                d = invR_vec(inward); d = d / (np.linalg.norm(d) + 1e-12)
                 n_out = invR_vec(outward_face)
-                origins.append(o)
-                dirs.append(d)
-                face_ids.append(i_face)
-                outward.append(n_out)
-                cnt += 1
+                origins.append(o); dirs.append(d); face_ids.append(i_face); outward.append(n_out); cnt += 1
 
         return (np.asarray(origins, float),
                 np.asarray(dirs, float),
@@ -246,56 +214,33 @@ class AllFacesSampler:
                 np.asarray(outward, float),
                 bb_min.astype(float), bb_max.astype(float))
 
-    @staticmethod
-    def first_last_hits(origins: np.ndarray, dirs: np.ndarray, mesh: trimesh.Trimesh):
-        ray_engine = (trimesh.ray.ray_pyembree.RayMeshIntersector(mesh)
-                      if getattr(trimesh.ray, "has_embree", False)
-                      else trimesh.ray.ray_triangle.RayMeshIntersector(mesh))
-        locs, ray_ids, tri_idx = ray_engine.intersects_location(origins, dirs, multiple_hits=True)
-        if len(locs) == 0:
-            return (np.empty((0,3)), np.empty((0,3)), np.empty((0,3)), np.empty((0,3)), np.empty((0,), int), np.empty((0,), int))
-        order = np.argsort(ray_ids, kind='mergesort')
-        locs = locs[order]; ray_ids = ray_ids[order]; tri_idx = tri_idx[order]
-        dists = np.linalg.norm(locs - origins[ray_ids], axis=1)
-        first_idx=[]; last_idx=[]; first_ray=[]; first_tri=[]
-        i=0; N=len(locs)
-        while i<N:
-            j=i; rid=ray_ids[i]
-            while j<N and ray_ids[j]==rid: j+=1
-            seg = slice(i,j)
-            idx = np.argsort(dists[seg])
-            fi = i + idx[0]      # 最近命中
-            li = i + idx[-1]     # 最远命中
-            first_idx.append(fi); last_idx.append(li); first_ray.append(rid); first_tri.append(tri_idx[fi])
-            i=j
-        first_idx=np.asarray(first_idx,int); last_idx=np.asarray(last_idx,int)
-        first_ray=np.asarray(first_ray,int); first_tri=np.asarray(first_tri,int)
-        p1=locs[first_idx]; n1=mesh.face_normals[tri_idx[first_idx]]
-        p2=locs[last_idx];  n2=mesh.face_normals[tri_idx[last_idx]]
-        return p1,n1,p2,n2,first_ray,first_tri
 
-
-# --------------------- 批量 Runner ---------------------
 class BatchAllFacesWithEps:
     def __init__(self,
                  config_list_json: str = "configs/list.json",
                  assets_root: str = "assets/object/lego_set",
                  out_dir: str = "results/longshort_pairs_fc",
                  scale: float = 0.001,
-                 num_rays: int = 20000,
                  eps_thresh: float = 0.0,
                  mu: float = 0.4,
                  m_dirs: int = 8,
                  convexify: str = "hull",
                  aabb_margin_ratio: float = 0.0,
-                 face_jitter: float = 0.0,
+                 face_jitter: float = 0.01,
                  rand_rotate: bool = False,
                  aabb_normal_align_deg: float = 45.0,
                  device: Optional[str] = None,
-                 max_workers: Optional[int] = 1):
+                 max_workers: Optional[int] = 1,
+                 target_total: int = 200,
+                 batch_num_rays: int = 12000,
+                 max_batches: int = 100000,
+                 target_per_face: int = 0,
+                 inward_offset_ratio: float = 1e-6,
+                 mix_prob_inward: float = 0.5,
+                 seed: int = 42):
 
+        self.cos_align = float(np.cos(np.deg2rad(aabb_normal_align_deg)))
         self.aabb_normal_align_deg = float(aabb_normal_align_deg)
-        self.cos_align = float(np.cos(np.deg2rad(self.aabb_normal_align_deg)))
 
         script_dir = Path(__file__).resolve().parent
         project_root = script_dir
@@ -309,7 +254,6 @@ class BatchAllFacesWithEps:
         self.out_dir          = _resolve(out_dir)
 
         self.scale = float(scale)
-        self.num_rays = int(num_rays)
         self.eps_thresh = float(eps_thresh)
 
         self.sampler = AllFacesSampler(
@@ -317,7 +261,7 @@ class BatchAllFacesWithEps:
             face_jitter=face_jitter,
             rand_rotate=rand_rotate,
             convexify=convexify,
-            seed=42
+            seed=seed
         )
         self.eps_eval = ForceClosureEps(mu=mu, m_dirs=m_dirs, device=device, dtype=torch.float32)
 
@@ -337,43 +281,27 @@ class BatchAllFacesWithEps:
 
         self.allowed_exts = (".stl", ".obj", ".ply")
 
-    def _resolve_meshes_from_name(self, name: str) -> List[str]:
-        ar = str(self.assets_root)
-        if "*" in name or "?" in name:
-            hits = []
-            for ext in self.allowed_exts:
-                pattern = name if name.lower().endswith(ext) else f"{name}{ext}"
-                hits.extend(sorted(glob(os.path.join(ar, pattern))))
-            return [os.path.abspath(x) for x in hits]
+        self.target_total = int(target_total)
+        self.batch_num_rays = int(batch_num_rays)
+        self.max_batches = int(max_batches)
+        self.target_per_face = int(target_per_face)
+        self.inward_offset_ratio = float(inward_offset_ratio)
+        self.mix_prob_inward = float(mix_prob_inward)
 
-        base, ext = os.path.splitext(name)
-        if ext.lower() in self.allowed_exts:
-            path = os.path.join(ar, name)
-            return [os.path.abspath(path)] if os.path.isfile(path) else []
-
-        hits = []
-        for e in self.allowed_exts:
-            cand = os.path.join(ar, f"{name}{e}")
-            if os.path.isfile(cand):
-                hits.append(os.path.abspath(cand))
-        return hits
+        self.rng = np.random.default_rng(seed)
 
     @staticmethod
     def _uv_on_face(face_id: int, pts: np.ndarray, bb_min: np.ndarray, bb_max: np.ndarray) -> np.ndarray:
-        """
-        将三维点映射到 face_id 对应的 AABB 面内坐标 (u,v)∈[0,1]^2
-        0:x-,1:x+,2:y-,3:y+,4:z-,5:z+
-        """
         ext = (bb_max - bb_min)
         ext = np.where(ext == 0, 1.0, ext)
         uv = np.zeros((len(pts), 2), dtype=np.float32)
-        if face_id in (0,1):  # 固定 x=min/max，面内轴为 (y,z)
+        if face_id in (0,1):
             uv[:,0] = (pts[:,1] - bb_min[1]) / ext[1]
             uv[:,1] = (pts[:,2] - bb_min[2]) / ext[2]
-        elif face_id in (2,3):  # 固定 y=min/max，面内轴为 (x,z)
+        elif face_id in (2,3):
             uv[:,0] = (pts[:,0] - bb_min[0]) / ext[0]
             uv[:,1] = (pts[:,2] - bb_min[2]) / ext[2]
-        else:  # (4,5) 固定 z=min/max，面内轴为 (x,y)
+        else:
             uv[:,0] = (pts[:,0] - bb_min[0]) / ext[0]
             uv[:,1] = (pts[:,1] - bb_min[1]) / ext[1]
         return np.clip(uv, 0.0, 1.0)
@@ -392,66 +320,112 @@ class BatchAllFacesWithEps:
                 mesh.apply_scale(self.scale)
             mesh = _convexify_mesh(mesh, mode=self.sampler.convexify)
 
-            origins, dirs, face_ids_all, outward_all, bb_min, bb_max = self.sampler.gen_rays(mesh, self.num_rays)
-            # 从 AABB 面往里发射，原点轻微反向偏移，避免数值退化
-            eps_offset = 1e-6 * (np.linalg.norm(bb_max - bb_min) + 1e-9)
-            origins = origins - eps_offset * dirs
+            kept = []
+            per_face_count = [0]*6  
 
-            p1, n1, p2, n2, first_ray_idx, _ = self.sampler.first_last_hits(origins, dirs, mesh)
-            if p1.shape[0] == 0:
-                payload = {"lego_id": stem, "pairs": np.zeros((0,2,3), dtype=np.float32),
-                           "normals": np.zeros((0,2,3), dtype=np.float32),
-                           "epsilon": np.zeros((0,), dtype=np.float32),
-                           "face_ids": np.zeros((0,2), dtype=np.int8),
-                           "pair_axis": np.zeros((0,), dtype=np.int8),
-                           "face_uv": {"p1": np.zeros((0,2), dtype=np.float32),
-                                       "p2": np.zeros((0,2), dtype=np.float32)},
-                           "meta": {"scale": self.scale, "aabb": {"min": bb_min.tolist(), "max": bb_max.tolist()}}}
-                np.save(out_path, payload, allow_pickle=True)
-                return (mesh_path, "ok(empty)")
-
-            # ---------- AABB 外法向一致性过滤 ----------
-            outv = outward_all[first_ray_idx]  # 与每一对 (p1,p2) 对应的 AABB 首面外法向
-            ok1 = np.sum(n1 * outv, axis=1) >= self.cos_align          # p1 朝外
-            ok2 = np.sum(n2 * (-outv), axis=1) >= self.cos_align       # p2 朝对面外
-            mask_orient = ok1 & ok2
-            if not np.any(mask_orient):
-                payload = {"lego_id": stem, "pairs": np.zeros((0,2,3), dtype=np.float32),
-                           "normals": np.zeros((0,2,3), dtype=np.float32),
-                           "epsilon": np.zeros((0,), dtype=np.float32),
-                           "face_ids": np.zeros((0,2), dtype=np.int8),
-                           "pair_axis": np.zeros((0,), dtype=np.int8),
-                           "face_uv": {"p1": np.zeros((0,2), dtype=np.float32),
-                                       "p2": np.zeros((0,2), dtype=np.float32)},
-                           "meta": {"scale": self.scale, "aabb": {"min": bb_min.tolist(), "max": bb_max.tolist()}}}
-                np.save(out_path, payload, allow_pickle=True)
-                return (mesh_path, "ok(orient=0)")
-
-            p1 = p1[mask_orient]; p2 = p2[mask_orient]
-            n1 = n1[mask_orient]; n2 = n2[mask_orient]
-            outv = outv[mask_orient]
-            f1 = face_ids_all[first_ray_idx][mask_orient].astype(np.int8)
-            f2 = (f1 ^ 1).astype(np.int8)  # 对面 face 索引
-            ax = (f1 // 2).astype(np.int8) # 成对所在轴：0/1/2 -> x/y/z
-
-            B  = p1.shape[0]
+            # 常量
             com_np = mesh.center_mass if mesh.is_watertight else mesh.centroid
-            device = self.eps_eval.device; dtype = self.eps_eval.dtype
-            p1_t = _to_t(p1, device, dtype)
-            p2_t = _to_t(p2, device, dtype)
-            n1_t = _to_t(n1, device, dtype)
-            n2_t = _to_t(n2, device, dtype)
-            com_t = _to_t(np.broadcast_to(com_np, (B,3)), device, dtype)
+            device = self.eps_eval.device
+            dtype = self.eps_eval.dtype
 
-            W1 = self.eps_eval.contact_wrench_rays_batch(p1_t, n1_t, com_t)  # (B,6,m)
-            W2 = self.eps_eval.contact_wrench_rays_batch(p2_t, n2_t, com_t)  # (B,6,m)
-            W  = torch.cat([W1, W2], dim=2)                                  # (B,6,2m)
+            bb_min, bb_max = mesh.bounds[0].astype(float), mesh.bounds[1].astype(float)
+            diag = float(np.linalg.norm(bb_max - bb_min) + 1e-12)
+            inward_eps_scalar = self.inward_offset_ratio * diag
 
-            eps_vec = self.eps_eval.epsilon_fw_batched(W)
-            eps_np  = _np(eps_vec)
-            keep    = eps_np >= self.eps_thresh
+            for b in range(self.max_batches):
+                if len(kept) >= self.target_total:
+                    break
 
-            if not np.any(keep):
+                origins, dirs, face_ids_all, outward_all, bb_min, bb_max = self.sampler.gen_rays(
+                    mesh, self.batch_num_rays
+                )
+                diag = float(np.linalg.norm(bb_max - bb_min) + 1e-12)
+                eps_offset = 1e-6 * (diag + 1e-9)
+                inward_eps = inward_eps_scalar  # 与上面一致，只是保持命名
+
+                origins = origins - eps_offset * dirs
+
+                ray_engine = (trimesh.ray.ray_pyembree.RayMeshIntersector(mesh)
+                              if getattr(trimesh.ray, "has_embree", False)
+                              else trimesh.ray.ray_triangle.RayMeshIntersector(mesh))
+
+                for i in range(origins.shape[0]):
+                    if len(kept) >= self.target_total:
+                        break
+
+                    fid = int(face_ids_all[i])
+                    if self.target_per_face > 0 and per_face_count[fid] >= self.target_per_face:
+                        continue
+
+                    o = origins[i].reshape(1,3)
+                    d = dirs[i].reshape(1,3)
+                    outv = outward_all[i]
+                    cos_align = self.cos_align
+
+                    locs, rids, tids = ray_engine.intersects_location(o, d, multiple_hits=True)
+                    if len(locs) == 0:
+                        continue
+                    dists = np.linalg.norm(locs - o, axis=1)
+                    j_first = int(np.argmin(dists))
+                    p1 = locs[j_first]; n1 = mesh.face_normals[tids[j_first]]
+
+                    if float(np.dot(n1, outv)) < cos_align:
+                        continue
+
+                    use_inward = (self.rng.random() < self.mix_prob_inward)
+
+                    if use_inward:
+                        inward_face = -outv
+                        o2 = (p1 + inward_face * inward_eps).reshape(1,3)
+                        d2 = inward_face.reshape(1,3)
+                        locs2, rids2, tids2 = ray_engine.intersects_location(o2, d2, multiple_hits=False)
+                        if len(locs2) == 0:
+                            continue
+                        p2 = locs2[0]; n2 = mesh.face_normals[tids2[0]]
+                    else:
+                        # 末命中
+                        j_last = int(np.argmax(dists))
+                        p2 = locs[j_last]; n2 = mesh.face_normals[tids[j_last]]
+
+                    if float(np.dot(n2, -outv)) < cos_align:
+                        continue
+
+                    # FC-ε
+                    p1_t = _to_t(p1[None,:], device, dtype)
+                    p2_t = _to_t(p2[None,:], device, dtype)
+                    n1_t = _to_t(n1[None,:], device, dtype)
+                    n2_t = _to_t(n2[None,:], device, dtype)
+                    com_t = _to_t(np.broadcast_to(com_np, (1,3)), device, dtype)
+
+                    W1 = self.eps_eval.contact_wrench_rays_batch(p1_t, n1_t, com_t)
+                    W2 = self.eps_eval.contact_wrench_rays_batch(p2_t, n2_t, com_t)
+                    W  = torch.cat([W1, W2], dim=2)
+                    eps_val = float(self.eps_eval.epsilon_fw_batched(W)[0].item())
+                    if eps_val < self.eps_thresh:
+                        continue
+
+                    f1 = np.int8(fid)
+                    f2 = np.int8(fid ^ 1)
+                    ax = np.int8(fid // 2)
+                    uv1 = self._uv_on_face(int(f1), p1[None,:], bb_min, bb_max)[0].astype(np.float32)
+                    uv2 = self._uv_on_face(int(f2), p2[None,:], bb_min, bb_max)[0].astype(np.float32)
+
+                    kept.append({
+                        "p1": p1.astype(np.float32), "p2": p2.astype(np.float32),
+                        "n1": n1.astype(np.float32), "n2": n2.astype(np.float32),
+                        "eps": np.float32(eps_val),
+                        "f1": f1, "f2": f2, "ax": ax,
+                        "uv1": uv1, "uv2": uv2,
+                        "outv": outv.astype(np.float32)
+                    })
+                    per_face_count[fid] += 1
+
+                print(f"[{stem}] batch {b+1}: kept={len(kept)} / target={self.target_total} | per-face={per_face_count}")
+
+            if len(kept) > self.target_total:
+                kept = kept[:self.target_total]
+
+            if len(kept) == 0:
                 payload = {"lego_id": stem, "pairs": np.zeros((0,2,3), dtype=np.float32),
                            "normals": np.zeros((0,2,3), dtype=np.float32),
                            "epsilon": np.zeros((0,), dtype=np.float32),
@@ -459,42 +433,43 @@ class BatchAllFacesWithEps:
                            "pair_axis": np.zeros((0,), dtype=np.int8),
                            "face_uv": {"p1": np.zeros((0,2), dtype=np.float32),
                                        "p2": np.zeros((0,2), dtype=np.float32)},
+                           "outward": np.zeros((0,3), dtype=np.float32),
                            "meta": {"scale": self.scale, "aabb": {"min": bb_min.tolist(), "max": bb_max.tolist()},
                                     "sampler":"aabb_all_faces_rays_first_last",
                                     "eps":{"mu": float(self.eps_eval.mu), "m_dirs": int(self.eps_eval.m_dirs),
                                            "thresh": float(self.eps_thresh)}}}
                 np.save(out_path, payload, allow_pickle=True)
-                return (mesh_path, "ok(eps=0)")
+                return (mesh_path, "ok(n=0)")
 
-            # 过滤并打包
-            p1 = p1[keep]; p2 = p2[keep]
-            n1 = n1[keep]; n2 = n2[keep]
-            outv = outv[keep]
-            f1  = f1[keep]; f2 = f2[keep]
-            ax  = ax[keep]
-            eps_np = eps_np[keep]
+            p1s = np.vstack([k["p1"] for k in kept]).astype(np.float32)
+            p2s = np.vstack([k["p2"] for k in kept]).astype(np.float32)
+            n1s = np.vstack([k["n1"] for k in kept]).astype(np.float32)
+            n2s = np.vstack([k["n2"] for k in kept]).astype(np.float32)
+            epss= np.array([k["eps"] for k in kept], dtype=np.float32)
+            f1s = np.array([k["f1"] for k in kept], dtype=np.int8)
+            f2s = np.array([k["f2"] for k in kept], dtype=np.int8)
+            axs = np.array([k["ax"] for k in kept], dtype=np.int8)
+            uv1s= np.vstack([k["uv1"] for k in kept]).astype(np.float32)
+            uv2s= np.vstack([k["uv2"] for k in kept]).astype(np.float32)
+            outs= np.vstack([k["outv"] for k in kept]).astype(np.float32)
 
-            pairs   = np.stack([p1, p2], axis=1).astype(np.float32)      # (K,2,3)
-            normals = np.stack([n1, n2], axis=1).astype(np.float32)      # (K,2,3)
-            face_ids= np.stack([f1, f2], axis=1).astype(np.int8)         # (K,2)
-            pair_axis = ax.astype(np.int8)                                # (K,)
-
-            # 计算各自面内 (u,v)
-            uv1 = np.vstack([self._uv_on_face(int(fi), p1[i:i+1], bb_min, bb_max)[0] for i,fi in enumerate(f1)]).astype(np.float32)
-            uv2 = np.vstack([self._uv_on_face(int(fi), p2[i:i+1], bb_min, bb_max)[0] for i,fi in enumerate(f2)]).astype(np.float32)
+            pairs   = np.stack([p1s, p2s], axis=1)
+            normals = np.stack([n1s, n2s], axis=1)
+            face_ids= np.stack([f1s, f2s], axis=1)
 
             payload = {
                 "lego_id": stem,
                 "pairs": pairs,
                 "normals": normals,
-                "epsilon": eps_np.astype(np.float32),
+                "epsilon": epss,
                 "face_ids": face_ids,
-                "pair_axis": pair_axis,            # 0:x, 1:y, 2:z
-                "outward": outv.astype(np.float32),# 首面对外法向
-                "face_uv": {"p1": uv1, "p2": uv2}, # 两点在各自面的 2D 坐标
+                "pair_axis": axs,
+                "outward": outs,
+                "face_uv": {"p1": uv1s, "p2": uv2s},
                 "meta": {
                     "scale": float(self.scale),
                     "aabb": {"min": bb_min.tolist(), "max": bb_max.tolist()},
+                    # 与原版保持一致的 sampler 字段（不改名）
                     "sampler": "aabb_all_faces_rays_first_last",
                     "aabb_normal_align_deg": float(self.aabb_normal_align_deg),
                     "eps": {"mu": float(self.eps_eval.mu), "m_dirs": int(self.eps_eval.m_dirs),
@@ -511,14 +486,29 @@ class BatchAllFacesWithEps:
     def run(self):
         todo = []
         for name in self.names:
-            mesh_paths = self._resolve_meshes_from_name(name)
-            if not mesh_paths:
-                print(f"[跳过] {name}: 未匹配到任何 mesh")
-                continue
-            todo.extend(mesh_paths)
+            ar = str(self.assets_root)
+            hits = []
+            base, ext = os.path.splitext(name)
+            exts = (".stl", ".obj", ".ply")
+            if "*" in name or "?" in name:
+                for e in exts:
+                    patt = name if name.lower().endswith(e) else f"{name}{e}"
+                    hits.extend(sorted(glob(os.path.join(ar, patt))))
+            else:
+                if ext.lower() in exts:
+                    p = os.path.join(ar, name)
+                    if os.path.isfile(p): hits.append(p)
+                else:
+                    for e in exts:
+                        p = os.path.join(ar, f"{name}{e}")
+                        if os.path.isfile(p): hits.append(p)
+
+            if not hits:
+                print(f"[跳过] {name}: 未匹配到任何 mesh"); continue
+            todo.extend([os.path.abspath(x) for x in hits])
+
         if not todo:
-            print("[INFO] 没有可运行的任务。")
-            return
+            print("[INFO] 没有可运行的任务。"); return
 
         if self.max_workers <= 1:
             for p in tqdm(todo, desc="单进程"):
@@ -538,14 +528,13 @@ class BatchAllFacesWithEps:
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="All-Faces AABB sampling + FC ε (save rich antipodal info)")
+    parser = argparse.ArgumentParser(description="Hybrid AABB all-faces sampling + random strategy FC ε")
 
     parser.add_argument("--config_list_json", type=str, default="configs/list.json")
     parser.add_argument("--assets_root", type=str, default="assets/object")
     parser.add_argument("--out_dir", type=str, default="results/longshort_pairs_fc")
 
     parser.add_argument("--scale", type=float, default=0.0004)
-    parser.add_argument("--num_rays", type=int, default=200)
     parser.add_argument("--max_workers", type=int, default=1)
 
     parser.add_argument("--mu", type=float, default=0.4)
@@ -555,11 +544,20 @@ if __name__ == "__main__":
 
     parser.add_argument("--convexify", type=str, choices=["none","hull","vhacd"], default="hull")
 
-    # AABB 采样相关
     parser.add_argument("--aabb_margin_ratio", type=float, default=0.0)
-    parser.add_argument("--face_jitter", type=float, default=0.0)
+    parser.add_argument("--face_jitter", type=float, default=0.02)
     parser.add_argument("--rand_rotate", action="store_true", default=False)
-    parser.add_argument("--aabb_normal_align_deg", type=float, default=45.0)
+    parser.add_argument("--aabb_normal_align_deg", type=float, default=85.0)
+
+    parser.add_argument("--target_total", type=int, default=200)
+    parser.add_argument("--batch_num_rays", type=int, default=12000)
+    parser.add_argument("--max_batches", type=int, default=100000)
+
+    parser.add_argument("--target_per_face", type=int, default=0)
+
+    parser.add_argument("--inward_offset_ratio", type=float, default=1e-6)
+
+    parser.add_argument("--mix_prob_inward", type=float, default=0.5)
 
     args = parser.parse_args()
 
@@ -572,7 +570,6 @@ if __name__ == "__main__":
         assets_root=args.assets_root,
         out_dir=args.out_dir,
         scale=args.scale,
-        num_rays=args.num_rays,
         eps_thresh=args.eps_thresh,
         mu=args.mu,
         m_dirs=args.m_dirs,
@@ -583,5 +580,11 @@ if __name__ == "__main__":
         aabb_normal_align_deg=args.aabb_normal_align_deg,
         device=dev,
         max_workers=args.max_workers,
+        target_total=args.target_total,
+        batch_num_rays=args.batch_num_rays,
+        max_batches=args.max_batches,
+        target_per_face=args.target_per_face,
+        inward_offset_ratio=args.inward_offset_ratio,
+        mix_prob_inward=args.mix_prob_inward,
     )
     runner.run()

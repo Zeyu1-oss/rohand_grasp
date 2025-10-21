@@ -29,8 +29,8 @@ friction: [0.6, 0.02, 0.001]
 default_density: 1000
 
 approach_gap: 2.0e-4  
-force_use_mass_g: true   # 默认就用 true
-force_scale: 1.0         # 可调倍率，比如 0.5 / 2.0
+force_use_mass_g: true   
+force_scale: 1.0         
 r1: 0.005
 r2: 0.0055
 
@@ -38,21 +38,24 @@ tol: 1.0e-4
 tol_fallback: 5.0e-4
 max_ctrls_per_pair: -1        
 
-trans_steps: 10
-rot_steps: 10
+trans_steps: 1000
+rot_steps: 1000
+
+tighten_use_if_prox: true
+tighten_use_th_prox: false
 
 penetration_check_steps: 10
 
-tighten_joints: [if_proximal_link,th_proximal_link]
-tighten_signs: [-1,-1]      
-tighten_cmd: 0.3   
+tighten_joints: [if_proximal_link]
+tighten_signs:  [-1]   
+tighten_cmd: 0.2 
 tighten_steps: 100
-contact_force_eps: 0.5
+contact_force_eps: 1
 
 force_N: 0.08
 force_steps: 300
-force_ramp_ratio: 0.2100
-trans_thre: 0.005  #m
+force_ramp_ratio: 0.2
+trans_thre: 0.01  #m
 
 angle_thre: 0.6  #rad 
 

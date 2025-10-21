@@ -749,14 +749,12 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
                 sgn = float(tighten_signs[min(idx, len(tighten_signs)-1)])
                 curp = _read_joint(model, data, prox)
                 newp = _set_joint_qpos_clamped(model, data, prox, curp + sgn*dp)
-                # CSV 联动 distal 关节
                 if prox == if_prox_name and (if_x is not None and if_y is not None):
                     newd = _interp_csv_saturated(if_x, if_y, newp)
                     _set_joint_qpos_clamped(model, data, if_dist_name, newd)
                 elif prox == th_prox_name and (th_x is not None and th_y is not None):
                     newd = _interp_csv_saturated(th_x, th_y, newp)
                     _set_joint_qpos_clamped(model, data, th_dist_name, newd)
-            # 在 root-lock 下推进一步
             _step_with_root_lock(1)
             fn_if, fn_th = sum_two_finger_normal_forces(
                 model, data, if_substrs=if_substrs, th_substrs=th_substrs
@@ -846,13 +844,13 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
         seg  = float(np.linalg.norm(p2_b - p1_b))
         vhat = (p2_b - p1_b) / (seg + 1e-12)
 
-        c1_b = p1_b - r1*vhat          # 小球（IF）
-        c2_b = p2_b + r2*vhat          # 大球（TH/TF）
+        c1_b = p1_b - r1*vhat          
+        c2_b = p2_b + r2*vhat          
         L_nominal = seg + r1 + r2
 
         c1_b_gap = c1_b - approach_gap * vhat
         c2_b_gap = c2_b
-        L_match  = L_nominal + approach_gap   # 只缩短一侧的中心距
+        L_match  = L_nominal + approach_gap  
 
         matching_indices, used_tol, fallback = find_all_matching_ctrls(
             qpos5_db, dists_db, L_match, tol, tol_fb, max_ctrls_per_pair
@@ -963,11 +961,13 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
             tighten_info = tighten_until_both_fingers_contact()
 
             fn_if1, fn_th1 = sum_two_finger_normal_forces(model, data, if_substrs=if_substrs, th_substrs=th_substrs)
-            if not (tighten_info.get("both_over_threshold", False) and
-                    (fn_if1 >= contact_force_eps) and (fn_th1 >= contact_force_eps)):
-                print(f"  → SKIP: no both-finger contact after tighten; if={fn_if1:.3e}, th={fn_th1:.3e}, eps={contact_force_eps:.3e}")
+            ok_tight = bool(tighten_info.get("established", tighten_info.get("both_over_threshold", False)))
+            if not ok_tight:
+                print(f"  → SKIP: no stable contact after tighten "
+                      f"(if={fn_if1:.3e}, th={fn_th1:.3e}, eps={contact_force_eps:.3e})")
                 pair_skip += 1
                 continue
+
 
             dirs = np.array([
                 [-1,0,0], [1,0,0],
