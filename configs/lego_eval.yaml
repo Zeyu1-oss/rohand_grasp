@@ -3,7 +3,7 @@ obj_mesh_root: ../assets/object
 antipodal_dir: ../results/longshort_pairs_fc
 scan_db: ../scan_from_csv1.npy
 antipodal_prefix: "pairs_"
-out_dir: results/eval_rohand
+out_dir: ../results/eval_rohand
 lego_list_json: list.json
 
 th_root_joint: th_root_link

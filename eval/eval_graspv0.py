@@ -1203,6 +1203,8 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
             ], dtype=float)
 
             base_pose = pose7_of_body(model, data, "lego")
+            root7_world1 = data.qpos[qadr_free:qadr_free+7].copy()
+            
             all_ok   = True
             per_dir  = []
             worst = {"idx": -1, "dir": None, "dp": -1.0, "da": -1.0}
@@ -1251,7 +1253,7 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
             root7_world = data.qpos[qadr_free:qadr_free+7].copy()
             root_body = _body_name_of_joint(model, cfg.get("freejoint", "root"))
             root7_in_lego = rel_pose7_bodyA_wrt_bodyB(model, data, root_body, "lego")
-            lego7_world = pose7_of_body(model, data, "lego")
+            # lego7_world = pose7_of_body(model, data, "lego")
 
             if status == "success":
                 out = {
@@ -1267,9 +1269,9 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
                     # "probe": probe_info,
                     # "tighten": tighten_info,
                     "stability_per_dir": per_dir,
-                    "root_pose7_in_world(xyzw)": root7_world.tolist(),
+                    "root_pose7_in_world(xyzw)": root7_world1.tolist(),
                     "root_pose7_in_lego(xyzw)": root7_in_lego.tolist(),
-                    "lego_pose7_in_world(xyzw)": lego7_world.tolist()
+                    "lego_pose7_in_world(xyzw)": base_pose.tolist()
 
                 }
                 np.save(os.path.join(out_dir, f"pair{k:06d}_ctrl{db_idx:06d}.succ.npy"),
