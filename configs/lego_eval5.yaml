@@ -28,35 +28,69 @@ zero_gravity: true
 friction: [0.6, 0.02, 0.001]
 default_density: 1000
 
-approach_gap: 2.0e-4  
-force_use_mass_g: true   
-force_scale: 1.0         
+approach_gap: 2.0e-4
+force_use_mass_g: true
+force_scale: 1.0
 r1: 0.005
 r2: 0.0055
 
 tol: 1.0e-4
 tol_fallback: 5.0e-4
-max_ctrls_per_pair: -1        
+max_ctrls_per_pair: -1
 
 trans_steps: 1000
 rot_steps: 1000
 
-tighten_use_if_prox: true
-tighten_use_th_prox: false
+tighten_joints:
+  - if_proximal_link
+  - th_proximal_link
+tighten_signs: [-1, -1]
+
+probe_steps: 400
+probe_cmd: 0.03               
+precontact_force_eps: 1.0e-4  
+precontact_dist_eps: 2.0e-4  
+precontact_max_steps: 400
 
 penetration_check_steps: 10
 
-tighten_joints: [if_proximal_link]
-tighten_signs:  [-1]   
-tighten_cmd: 0.2 
-tighten_steps: 100
-contact_force_eps: 1
+tighten_cmd: 0.10
+tighten_steps: 300
+tighten_speed_scale: 0.40       
+tighten_ease_steps: 30
+tighten_ctrl_slew_max: 0.003
+tighten_settle_sim_per_step: 3
+tighten_consecutive_steps: 3
+contact_force_eps: 1.0e+00        
+tighten_ctrl_slew_max: 0.002      
+tighten_depth_guard: -3.0e-4      
+tighten_settle_sim_per_step: 5    
+tighten_ease_steps: 20           
+tighten_auto_extend: true
+tighten_extend_cmd: 0.05
+tighten_extend_steps: 80
+tighten_extend_max_rounds: 1
+tighten_target_force_if: 1.0      
+tighten_target_force_th: 1.0
+
+tighten_auto_extend: true
+tighten_extend_cmd: 0.05
+tighten_extend_steps: 200
+tighten_extend_max_rounds: 2
+
+contact_force_eps: 0.30
+tighten_target_force_if: 0.40
+tighten_target_force_th: 0.40
+
+contact_detect_force_eps: 5.0e-4
+contact_detect_dist_eps: 0.0
+
+tighten_freeze_early_contact: false
 
 force_N: 0.08
 force_steps: 300
 force_ramp_ratio: 0.2
-trans_thre: 0.01  #m
+trans_thre: 0.01     # m
+angle_thre: 0.6      # rad
 
-angle_thre: 0.6  #rad 
-
-topk: -1 # -1 means all
+topk: -1

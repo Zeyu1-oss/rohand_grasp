@@ -1,5 +1,5 @@
 <mujoco model="rohand_left">
-<option timestep="0.001" solver="Newton" iterations="100" integrator="implicitfast"
+<option timestep="0.001" solver="Newton" iterations="200" integrator="implicitfast"
         gravity="0 0 -9.81" sdf_iterations="50" sdf_initpoints="50" ccd_iterations="50"/>
 
   <default>
@@ -8,7 +8,7 @@
         <geom contype="0" conaffinity="0" group="2"/>
       </default>
       <default class="collision">
-        <geom material="collision_material" condim="4" contype="1" conaffinity="1" priority="1" group="3" solref="0.005 1" friction="0.5 0.001 0.001"/>
+        <geom material="collision_material" condim="4" contype="1" conaffinity="1" priority="1" group="3"  margin="1e-4"   solref="0.01 1" friction="0.5 0.1 0.001"/>
       </default>
       <joint damping="0.1" armature="0.001" frictionloss="0.0"/>
     </default>
@@ -46,7 +46,7 @@
       <body name="if_proximal_link" pos="-0.11211 0.037738 -0.0018032">
         <inertial pos="-0.0180401934810981 -0.00594318681409525 -0.00214940799795961" mass="0.00154987032874225" diaginertia="6.20379278686707e-08 1.54247144894286e-07 1.69493178080606e-07"/>
         <joint name="if_proximal_link" type="hinge" range="-1.5 0 " axis="0.082428 0.99278 -0.087177"  />
-        <geom name="if_proximal_link_collision" friction="0.01 0.01 0.001" type="mesh" mesh="if_proximal_link.STL" class="collision"/>
+        <geom name="if_proximal_link_collision" type="mesh" mesh="if_proximal_link.STL" class="collision"/>
         <geom name="if_proximal_link_visual"    type="mesh" mesh="if_proximal_link.STL" material="default_material" class="visual"/>
         <body name="if_distal_link" pos="-0.035776 0.0028401 -0.0014841">
           <inertial pos="-0.0242417824734568 -0.00576634331785805 -0.00601095840966076" mass="0.0042269383122795" diaginertia="9.82682026496382e-08 5.59160651416525e-07 5.40423175644971e-07"/>
@@ -263,7 +263,7 @@
     <position name="if_distal_motor" joint="if_distal_link"
             kp="200" kv="10"          
             ctrlrange="-1.7 0" ctrllimited="true"
-            forcerange="-500 500" forcelimited="true"
+            forcerange="-100 100" forcelimited="true"
             gear="1"/>
   <position name="mf_proximal_motor" joint="mf_proximal_link"
             kp="200" kv="10"          

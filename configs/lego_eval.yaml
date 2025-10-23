@@ -1,53 +1,76 @@
-xml: ../assets/left_hand.xml                
-obj_mesh_root: ../assets/object            
-antipodal_dir: ../results/longshort_pairs_fc 
-scan_db: ../scan_from_csv1.npy               
+xml: ../assets/left_hand1.xml
+obj_mesh_root: ../assets/object
+antipodal_dir: ../results/longshort_pairs_fc
+scan_db: ../scan_from_csv1.npy
 antipodal_prefix: "pairs_"
-distal_a_body: if_distal_link
-distal_b_body: th_distal_link 
 out_dir: results/eval_rohand
-th_csv: ../th_curve.csv
-if_csv: ../if_curve.csv
+lego_list_json: list.json
 
-lego_list_json: list.json        
-pairs_already_scaled: true
-default_scale: 0.001
-default_density: 1000.0
-scales:
-  plate3_3_tan: 0.001
-  brick2_10_medium_lavender: 0.001
+th_root_joint: th_root_link
+th_prox_joint: th_proximal_link
+th_dist_joint: th_distal_link
+if_prox_joint: if_proximal_link
+if_dist_joint: if_distal_link
 
+distal_a_body: if_distal_link
+distal_b_body: th_distal_link
 site1: if_distal_site_ball
 site2: tf_distal_site_ball
 freejoint: root
-motors: [th_proximal_link, th_root_link, if_proximal_link]
-hand_body_substrs: ["if_", "th_"]   
+
+th_csv: ../th_relation.csv
+if_csv: ../if_curve.csv
+csv_deg: false
+
+pairs_already_scaled: true    
 
 zero_gravity: true             
+friction: [0.9, 0.02, 0.05]
+default_density: 500
+
+approach_gap: 2.0e-4        
+approach_gap_if: 2.0e-4
+approach_gap_th: 2.0e-4
 r1: 0.005
 r2: 0.0055
+
 tol: 1.0e-4
 tol_fallback: 5.0e-4
+max_ctrls_per_pair: -1         # -1 表示用全部匹配项
 
-ramp_steps: 120
-settle_steps: 200
-trans_steps: 10
-rot_steps: 10
-
-penetration_skip_threshold: 1.0e-4
+trans_steps: 1000
+rot_steps: 1000
 penetration_check_steps: 10
 
-tighten_joints: [if_proximal_link]
-tighten_signs: "-1"     
-tighten_cmd: 0.1
-tighten_steps: 60
-wait_after_tighten: 60
+precontact_dist_eps: 0.0002    
+precontact_force_eps: 0.05     
 
-force_N: 0.05
+tighten_joints: [if_proximal_link, th_proximal_link]
+tighten_signs:  [-1, -1]     
+tighten_cmd: 0.1             
+tighten_steps: 1000  
+tighten_sim_per_step: 1     
+tighten_consecutive_steps: 3 
+
+contact_detect_dist_eps: 0.0002
+contact_detect_force_eps: 0.05
+tighten_only_if_csv: true 
+
+
+if_substrs: ["if_"]
+th_substrs: ["th_", "tf_"]
+
+force_use_mass_g: true         
+force_scale: 1.0
+force_N: 0.08                 
 force_steps: 300
-force_ramp_ratio: 0.2
-trans_thre: 0.005
-angle_thre: 0.2
+force_ramp_ratio: 0.2          
+contact_force_eps: 1
+tighten_target_force_if: 1
+tighten_target_force_th: 1
 
-topk: -1        # 每个 LEGO eval多少（-1=全评）
-friction: [0.6, 0.02, 0.001]
+trans_thre: 0.03               
+angle_thre: 1               
+
+
+topk: -1                       

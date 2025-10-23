@@ -1,3 +1,5 @@
+# 对齐→打开碰撞→锁 root/LEGO→加紧→释放 LEGO→6D 扰动
+
 import os, sys, glob, json, time, argparse
 from typing import Any, Dict, List, Tuple
 import numpy as np
@@ -656,13 +658,6 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
     detect_dist_eps  = float(cfg.get("contact_detect_dist_eps", 0.0))
     sim_per_step     = int(cfg.get("tighten_sim_per_step", 3))
 
-    # 探碰阶段参数（可选）
-    precontact_force_eps = float(cfg.get("precontact_force_eps", max(1e-5, 0.25*contact_force_eps)))
-    precontact_dist_eps  = float(cfg.get("precontact_dist_eps", 2.0e-4))
-    precontact_max_steps = int(cfg.get("precontact_max_steps", 400))
-    probe_total_cmd      = float(cfg.get("probe_cmd", 0.3 * tighten_total_cmd))
-    probe_steps          = int(cfg.get("probe_steps", min(400, tighten_steps if tighten_steps>0 else 400)))
-
     show_interval = int(cfg.get("show_interval", 2))
     viewer_sleep  = float(cfg.get("viewer_sleep", 0.0))
     visualize_force_phase = bool(cfg.get("visualize_force_phase", True))
@@ -733,31 +728,59 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
 
     site1 = resolve_site_name(model, cfg.get("site1","if_distal_site_ball"))
     site2 = resolve_site_name(model, cfg.get("site2","tf_distal_site_ball"))
-    qadr_free = _free_qadr(model, cfg.get("freejoint","root"))
-    dadr_free = _free_dadr(model, cfg.get("freejoint","root"))
+    qadr_root = _free_qadr(model, cfg.get("freejoint","root"))
+    dadr_root = _free_dadr(model, cfg.get("freejoint","root"))
 
-    # ===== Root-lock
+    # ===== 额外：LEGO freejoint 索引
+    lego_freejoint_name = str(cfg.get("lego_freejoint", "lego_freejoint"))
+    qadr_lego = _free_qadr(model, lego_freejoint_name)
+    dadr_lego = _free_dadr(model, lego_freejoint_name)
+
+    # ===== Locks
     root_lock_enabled = False
     root_lock_pose7 = None
-    root_vel_slice = slice(dadr_free, dadr_free+6)
+    root_vel_slice = slice(dadr_root, dadr_root+6)
+
+    lego_lock_enabled = False
+    lego_lock_pose7 = None
+    lego_vel_slice = slice(dadr_lego, dadr_lego+6)
 
     def lock_root_pose():
         nonlocal root_lock_enabled, root_lock_pose7
-        root_lock_pose7 = data.qpos[qadr_free:qadr_free+7].copy()
+        root_lock_pose7 = data.qpos[qadr_root:qadr_root+7].copy()
         root_lock_enabled = True
         print("[lock] root locked at pose7 =", np.array2string(root_lock_pose7, precision=6))
+
+    def lock_lego_pose():
+        nonlocal lego_lock_enabled, lego_lock_pose7
+        lego_lock_pose7 = data.qpos[qadr_lego:qadr_lego+7].copy()
+        lego_lock_enabled = True
+        print("[lock] lego locked at pose7 =", np.array2string(lego_lock_pose7, precision=6))
+
+    def unlock_lego_pose():
+        nonlocal lego_lock_enabled
+        lego_lock_enabled = False
+        print("[unlock] lego freejoint released")
 
     def _enforce_root_lock():
         if not root_lock_enabled:
             return
-        data.qpos[qadr_free:qadr_free+7] = root_lock_pose7
+        data.qpos[qadr_root:qadr_root+7] = root_lock_pose7
         data.qvel[root_vel_slice] = 0.0
 
-    def _step_with_root_lock(n=1):
+    def _enforce_lego_lock():
+        if not lego_lock_enabled:
+            return
+        data.qpos[qadr_lego:qadr_lego+7] = lego_lock_pose7
+        data.qvel[lego_vel_slice] = 0.0
+
+    def _step_locked(n=1):
         for _ in range(int(n)):
             _enforce_root_lock()
+            _enforce_lego_lock()
             mj.mj_step(model, data)
             _enforce_root_lock()
+            _enforce_lego_lock()
 
     distal_a_body = str(cfg.get("distal_a_body", "if_distal_link"))
     distal_b_body = str(cfg.get("distal_b_body", "th_distal_link"))
@@ -783,90 +806,17 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
             return "th"
         return ""
 
-    # —— 阶段A：各指独立“探碰”，先测力与距离，再推进一点（仅用 prox 名称推进，便于靠近）
-    def _read_joint(model, data, jname: str) -> float:
-        jid = _jid(model, jname)
-        adr = int(model.jnt_qposadr[jid])
-        return float(data.qpos[adr])
 
-    def probe_until_both_ready() -> Dict[str, Any]:
-        info = {
-            "used": True,
-            "if_ready_step": -1,
-            "th_ready_step": -1,
-            "both_ready_at": -1,
-            "per_step": []
-        }
-        if probe_steps <= 0 or abs(probe_total_cmd) <= 0:
-            info["used"] = False
-            return info
-        dp_probe = probe_total_cmd / max(1, probe_steps)
-        ready_if = False
-        ready_th = False
-        step_reached = 0
-        for s in range(min(precontact_max_steps, probe_steps)):
-            fn_if, fn_th = sum_two_finger_normal_forces(model, data, if_substrs=if_substrs, th_substrs=th_substrs)
-            d_if, d_th = min_contact_dist_by_finger(model, data, if_substrs=if_substrs, th_substrs=th_substrs)
-            info["per_step"].append({"step": s+1, "fn_if": float(fn_if), "fn_th": float(fn_th),
-                                     "d_if": float(d_if), "d_th": float(d_th)})
-
-            # 判定就位
-            if (not ready_if) and (fn_if >= precontact_force_eps or d_if <= precontact_dist_eps):
-                ready_if = True; info["if_ready_step"] = s+1
-            if (not ready_th) and (fn_th >= precontact_force_eps or d_th <= precontact_dist_eps):
-                ready_th = True; info["th_ready_step"] = s+1
-
-            if ready_if and ready_th:
-                info["both_ready_at"] = s+1
-                print(f"    [probe] both fingers ready at step {info['both_ready_at']} "
-                      f"(if: fn={fn_if:.3e}, d={d_if:.3e}; th: fn={fn_th:.3e}, d={d_th:.3e})")
-                break
-
-            # 推进尚未就位的 prox
-            for prox_name, sign in zip([if_prox_name, th_prox_name], [-1.0, -1.0]):
-                need_this = ((prox_name == if_prox_name) and (not ready_if)) or \
-                            ((prox_name == th_prox_name) and (not ready_th))
-                if not need_this:
-                    continue
-                curp = _read_joint(model, data, prox_name)
-                newp = _set_joint_qpos_clamped(model, data, prox_name, curp + sign*dp_probe)
-                # CSV 联动 distal
-                if prox_name == if_prox_name and (if_x is not None and if_y is not None):
-                    newd = _interp_csv_saturated(if_x, if_y, newp)
-                    _set_joint_qpos_clamped(model, data, if_dist_name, newd)
-                if prox_name == th_prox_name and (th_x is not None and th_y is not None):
-                    newd = _interp_csv_saturated(th_x, th_y, newp)
-                    _set_joint_qpos_clamped(model, data, th_dist_name, newd)
-
-            _step_with_root_lock(1)
-            if viewer is not None:
-                _safe_sync(viewer, show_interval, s, viewer_sleep)
-            step_reached = s+1
-
-        if info["both_ready_at"] < 0:
-            print(f"    [probe] not both ready after {step_reached} steps "
-                  f"(epsF={precontact_force_eps:.3e}, epsD={precontact_dist_eps:.3e})")
-        return info
-
-    def tighten_by_actuators_freeze_then_together() -> Dict[str, Any]:
-        """
-        用 actuator(ctrl) 做加紧：
-        1) 你通过 tighten_joints 精确选定参与的关节（可以只选 IF 或只选 TH，或任意组合）；
-        2) 先“冻结”先接触的一侧，等另一侧也接触；
-        3) 两侧都接触后，持续推进，直到：
-        - (a) 双侧力都 ≥ contact_force_eps 且连续 K 步稳定，或者
-        - (b) 已耗尽【初始 tighten_cmd + 自动追加 tighten_extend_cmd * max_rounds】。
-        说明：prox→dist 的 CSV 联动仍然有效（当 distal 没被选入 tighten_joints 时）。
-        """
+    def tighten_by_actuators_until_threshold() -> Dict[str, Any]:
         log = {
             "used": True,
             "established": False,
-            "both_over_threshold": False,   # 兼容旧字段名
+            "both_over_threshold": False,
             "established_at_step": -1,
             "consecutive_required": int(tighten_consecutive),
             "per_step": [],
             "final_forces": {"fn_if": 0.0, "fn_th": 0.0},
-            "frozen_at": {"if": -1, "th": -1},
+            "frozen_at": {"if": -1, "th": -1},     # 记录“达到阈值而暂停”的时刻（按步号）
             "active": {"if": False, "th": False},
             "detect_force_eps": float(detect_force_eps),
             "detect_dist_eps": float(detect_dist_eps),
@@ -876,43 +826,45 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
             log["used"] = False
             return log
 
+        # 配置
         extend_enable      = bool(cfg.get("tighten_auto_extend", True))
-        extend_cmd_each    = float(cfg.get("tighten_extend_cmd", 0.05))    
-        extend_steps_each  = int(cfg.get("tighten_extend_steps", 80))      
-        extend_max_rounds  = int(cfg.get("tighten_extend_max_rounds", 1))  
+        extend_cmd_each    = float(cfg.get("tighten_extend_cmd", 0.05))
+        extend_steps_each  = int(cfg.get("tighten_extend_steps", 80))
+        extend_max_rounds  = int(cfg.get("tighten_extend_max_rounds", 1))
         target_force_if    = float(cfg.get("tighten_target_force_if", contact_force_eps))
         target_force_th    = float(cfg.get("tighten_target_force_th", contact_force_eps))
 
-        # ---- actuator id 映射
+        # 滞回（阈值—下沿），避免接近阈值的来回抖动
+        hyster_ratio       = float(cfg.get("tighten_hysteresis_ratio", 0.1))
+        resume_force_if    = max(0.0, target_force_if * (1.0 - hyster_ratio))
+        resume_force_th    = max(0.0, target_force_th * (1.0 - hyster_ratio))
+
+        # 关节-执行器映射
         joint2aid = {}
-        for nm in list(set(tighten_joints + [if_dist_name, th_dist_name])):  # CSV 可能会用到 distal
+        for nm in list(set(tighten_joints + [if_dist_name, th_dist_name])):  # CSV 可能用到 distal
             try:
                 joint2aid[nm] = _act_id_of_joint(model, nm)
             except Exception:
                 pass
 
-        def _set_ctrl_for_joint(jname: str, val: float):
-            if jname in joint2aid:
-                aid = joint2aid[jname]
-                data.ctrl[aid] = _ctrl_clamp(model, aid, float(val))
-
-        # 哪些“手指”参与（任一被选中的关节属于该指即可视为参与）
-        def finger_of_joint(jn: str) -> str:
+        def _finger_of_joint(jn: str) -> str:
             nm = jn or ""
             if nm in (if_prox_name, if_dist_name) or "if_" in nm: return "if"
             if nm in (th_root_name, th_prox_name, th_dist_name) or "th_" in nm or "tf_" in nm: return "th"
             return ""
 
-        active_if = any(finger_of_joint(jn) == "if" for jn in tighten_joints)
-        active_th = any(finger_of_joint(jn) == "th" for jn in tighten_joints)
+        active_if = any(_finger_of_joint(jn) == "if" for jn in tighten_joints)
+        active_th = any(_finger_of_joint(jn) == "th" for jn in tighten_joints)
         log["active"]["if"] = bool(active_if)
         log["active"]["th"] = bool(active_th)
 
-        # 初始目标 ctrl（每关节独立：当前 + sign * tighten_cmd）
+        # 目标 ctrl（每指各自有目标；本函数只决定“推进还是暂停”）
         start_ctrl  = {}
         target_ctrl = {}
-        per_step_abs = abs(tighten_total_cmd) / max(1, tighten_steps)
-
+        per_step_abs = min(
+            abs(tighten_total_cmd)/max(1,tighten_steps),
+            float(cfg.get("tighten_ctrl_slew_max", 0.002))  # 默认 0.002
+        )
         for jn, sgn in zip(tighten_joints, tighten_signs):
             if jn not in joint2aid: continue
             aid = joint2aid[jn]
@@ -920,15 +872,24 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
             start_ctrl[jn]  = cur
             target_ctrl[jn] = _ctrl_clamp(model, aid, cur + float(sgn) * float(tighten_total_cmd))
 
-        # 允许 CSV（prox 被选中、distal 未被选中、且有 CSV 曲线）
-        allow_if_csv = (if_prox_name in tighten_joints) and (if_dist_name not in tighten_joints) and (if_x is not None and if_y is not None) and (if_dist_name in joint2aid)
-        allow_th_csv = (th_prox_name in tighten_joints) and (th_dist_name not in tighten_joints) and (th_x is not None and th_y is not None) and (th_dist_name in joint2aid)
+        # CSV 联动：prox 被选中、distal 未被选中时启用
+        th_x_there = (th_x is not None and th_y is not None)
+        if_x_there = (if_x is not None and if_y is not None)
+        allow_if_csv = (if_prox_name in tighten_joints) and (if_dist_name not in tighten_joints) and if_x_there and (if_dist_name in joint2aid)
+        allow_th_csv = (th_prox_name in tighten_joints) and (th_dist_name not in tighten_joints) and th_x_there and (th_dist_name in joint2aid)
 
+        # —— 以“是否 ≥ 力阈值”为冻结条件的单轮推进
         def one_round(max_steps: int, tag: str):
-            """执行一轮向 target_ctrl 逼近；返回 (established: bool)"""
             nonlocal log
-            contacted_if = (not active_if)
-            contacted_th = (not active_th)
+
+            # “是否已达阈值”的状态（达阈值=暂停），注意这是按“力”判定，而非“接触”
+            over_if = (not active_if)   # 如果该指不参与 tighten，则视作天然达标
+            over_th = (not active_th)
+
+            # 记录首次“达阈值”的步号
+            frozen_if_set = False
+            frozen_th_set = False
+
             consecutive_ok = 0
             steps_taken = 0
 
@@ -936,32 +897,38 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
                 fn_if, fn_th = sum_two_finger_normal_forces(model, data, if_substrs=if_substrs, th_substrs=th_substrs)
                 d_if,  d_th  = min_contact_dist_by_finger(model, data, if_substrs=if_substrs, th_substrs=th_substrs)
 
+                # 判断达阈值/解除（带滞回）
+                if active_if:
+                    if (not over_if) and (fn_if >= target_force_if):
+                        over_if = True
+                        if not frozen_if_set:
+                            log["frozen_at"]["if"] = len(log["per_step"]) + 1
+                            frozen_if_set = True
+                    elif over_if and (fn_if < resume_force_if):
+                        # 如果掉到滞回下沿以下，则允许继续推进
+                        over_if = False
+
+                if active_th:
+                    if (not over_th) and (fn_th >= target_force_th):
+                        over_th = True
+                        if not frozen_th_set:
+                            log["frozen_at"]["th"] = len(log["per_step"]) + 1
+                            frozen_th_set = True
+                    elif over_th and (fn_th < resume_force_th):
+                        over_th = False
+
+                # 记录本步数据
                 log["per_step"].append({
-                    "step": s, "round": tag, "fn_if": float(fn_if), "fn_th": float(fn_th),
+                    "step": s, "round": tag,
+                    "fn_if": float(fn_if), "fn_th": float(fn_th),
                     "d_if": float(d_if), "d_th": float(d_th),
+                    "over": {"if": bool(over_if), "th": bool(over_th)},
                     "ctrl": {jn: float(data.ctrl[joint2aid[jn]]) for jn in target_ctrl if jn in joint2aid}
                 })
 
-                # 冻结早接触的一侧（只对参与的手指）
-                if active_if and (not contacted_if) and (fn_if >= detect_force_eps or d_if <= detect_dist_eps):
-                    contacted_if = True
-                    for jn in tighten_joints:
-                        if finger_of_joint(jn) == "if" and jn in target_ctrl and jn in joint2aid:
-                            target_ctrl[jn] = float(data.ctrl[joint2aid[jn]])
-                    log["frozen_at"]["if"] = log["frozen_at"]["if"] if log["frozen_at"]["if"] > 0 else len(log["per_step"])
-
-                if active_th and (not contacted_th) and (fn_th >= detect_force_eps or d_th <= detect_dist_eps):
-                    contacted_th = True
-                    for jn in tighten_joints:
-                        if finger_of_joint(jn) == "th" and jn in target_ctrl and jn in joint2aid:
-                            target_ctrl[jn] = float(data.ctrl[joint2aid[jn]])
-                    log["frozen_at"]["th"] = log["frozen_at"]["th"] if log["frozen_at"]["th"] > 0 else len(log["per_step"])
-
-                # 两侧都接触后：判稳（也允许你把目标力设得高于 eps）
-                if contacted_if and contacted_th:
-                    ok_if = (fn_if >= target_force_if) if active_if else True
-                    ok_th = (fn_th >= target_force_th) if active_th else True
-                    consecutive_ok = (consecutive_ok + 1) if (ok_if and ok_th) else 0
+                # 双侧都 ≥ 阈值：进入“连续计数”稳定判定
+                if over_if and over_th:
+                    consecutive_ok += 1
                     if consecutive_ok >= log["consecutive_required"]:
                         log["established"] = True
                         log["both_over_threshold"] = True
@@ -969,49 +936,55 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
                         log["final_forces"] = {"fn_if": float(fn_if), "fn_th": float(fn_th)}
                         print(f"    [tighten] ESTABLISHED({tag}) at step {s} (if={fn_if:.3e}, th={fn_th:.3e})")
                         return True
+                else:
+                    consecutive_ok = 0
 
-                # 施加 ctrl 步进（冻结一侧且另一侧未接触 → 本侧不再推进）
+                # 推进策略：
+                # - 若某指已达阈值(over=True) 且 另一指未达阈值，则该指暂停（step=0）
+                # - 其他情况（例如两指都未达阈值），允许朝 target_ctrl 推进
                 for jn, sgn in zip(tighten_joints, tighten_signs):
                     if jn not in joint2aid: continue
-                    finger = finger_of_joint(jn)
-                    if finger == "if" and contacted_if and (active_th and not contacted_th):
-                        step = 0.0
-                    elif finger == "th" and contacted_th and (active_if and not contacted_if):
-                        step = 0.0
-                    else:
-                        aid = joint2aid[jn]
-                        cur = float(data.ctrl[aid])
-                        tgt = target_ctrl.get(jn, cur)
-                        diff = tgt - cur
-                        step = 0.0 if abs(diff) <= 1e-12 else float(np.clip(diff, -per_step_abs, per_step_abs))
-                        if abs(step) > 0.0:
-                            newv = _ctrl_clamp(model, aid, cur + step)
-                            data.ctrl[aid] = newv
-                            # CSV 联动（仅当 prox 被选中 且 distal 未被选中）
-                            if jn == if_prox_name and allow_if_csv:
-                                newd = _interp_csv_saturated(if_x, if_y, newv)
-                                data.ctrl[joint2aid[if_dist_name]] = _ctrl_clamp(model, joint2aid[if_dist_name], newd)
-                            if jn == th_prox_name and allow_th_csv:
-                                newd = _interp_csv_saturated(th_x, th_y, newv)
-                                data.ctrl[joint2aid[th_dist_name]] = _ctrl_clamp(model, joint2aid[th_dist_name], newd)
+                    finger = _finger_of_joint(jn)
 
-                _step_with_root_lock(sim_per_step)
+                    pause_this = False
+                    if finger == "if" and over_if and (not over_th):
+                        pause_this = True
+                    if finger == "th" and over_th and (not over_if):
+                        pause_this = True
+
+                    aid = joint2aid[jn]
+                    cur = float(data.ctrl[aid])
+                    tgt = target_ctrl.get(jn, cur)
+                    diff = 0.0 if pause_this else (tgt - cur)
+                    step = 0.0 if abs(diff) <= 1e-12 else float(np.clip(diff, -per_step_abs, per_step_abs))
+
+                    if abs(step) > 0.0:
+                        newv = _ctrl_clamp(model, aid, cur + step)
+                        data.ctrl[aid] = newv
+                        # CSV 联动（prox 被选中且 distal 未被选中）
+                        if jn == if_prox_name and allow_if_csv:
+                            newd = _interp_csv_saturated(if_x, if_y, newv)
+                            data.ctrl[joint2aid[if_dist_name]] = _ctrl_clamp(model, joint2aid[if_dist_name], newd)
+                        if jn == th_prox_name and allow_th_csv:
+                            newd = _interp_csv_saturated(th_x, th_y, newv)
+                            data.ctrl[joint2aid[th_dist_name]] = _ctrl_clamp(model, joint2aid[th_dist_name], newd)
+
+                _step_locked(sim_per_step)
                 if viewer is not None:
                     _safe_sync(viewer, show_interval, s, viewer_sleep)
                 steps_taken += 1
 
-            # 未建立
             print(f"    [tighten] round '{tag}' ended (steps={steps_taken}) not established; "
-                f"last if/th = {fn_if:.3e}/{fn_th:.3e}, target_if/th={target_force_if:.3e}/{target_force_th:.3e}")
+                  f"last if/th = {fn_if:.3e}/{fn_th:.3e}, target_if/th={target_force_if:.3e}/{target_force_th:.3e}")
             return False
 
-        # ---- 主流程：一轮初始 + 若需要自动追加的若干轮
+        # 主流程：初始一轮 + 自动扩展
         ok = one_round(tighten_steps, tag="init")
         log["rounds"].append({"tag":"init","ok":bool(ok)})
 
         if (not ok) and extend_enable and (extend_cmd_each > 0.0) and (extend_steps_each > 0) and (extend_max_rounds > 0):
             for r in range(1, extend_max_rounds+1):
-                # 为每个被选中的关节追加目标：target += sign * extend_cmd_each
+                # 扩展目标（两侧同时 +cmd）
                 for jn, sgn in zip(tighten_joints, tighten_signs):
                     if jn not in joint2aid: continue
                     aid = joint2aid[jn]
@@ -1027,8 +1000,8 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
         if not log["established"]:
             last = log["per_step"][-1] if log["per_step"] else {"fn_if":0,"fn_th":0}
             print(f"  [tighten] NOT ESTABLISHED after all rounds "
-                f"(last if={last['fn_if']:.3e}, th={last['fn_th']:.3e}, "
-                f"need ≥{max(target_force_if,target_force_th):.3e})")
+                  f"(last if={last['fn_if']:.3e}, th={last['fn_th']:.3e}, "
+                  f"need ≥{max(target_force_if,target_force_th):.3e})")
         return log
 
     def apply_force_with_visuals(body_name: str, f_world3: np.ndarray, steps: int, ramp_ratio: float):
@@ -1038,21 +1011,24 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
         # 斜坡阶段
         for i in range(ramp):
             a = (i+1)/float(ramp)
-            _enforce_root_lock()
+            _enforce_root_lock()   # 手根锁：稳住手
+            _enforce_lego_lock()   # 如果还锁着 LEGO，就强制
             data.xfrc_applied[bid] = a*ft
-            _step_with_root_lock(1)
+            mj.mj_step(model, data)   # 施力阶段直接单步，避免额外重复锁
             if viewer is not None and visualize_force_phase:
                 _safe_sync(viewer, show_interval, i, viewer_sleep)
         # 恒定外力阶段
         for j in range(max(0,steps-ramp)):
             _enforce_root_lock()
+            _enforce_lego_lock()
             data.xfrc_applied[bid] = ft
-            _step_with_root_lock(1)
+            mj.mj_step(model, data)
             if viewer is not None and visualize_force_phase:
                 _safe_sync(viewer, show_interval, j, viewer_sleep)
         data.xfrc_applied[bid] = np.zeros(6)
         mj.mj_forward(model, data)
         _enforce_root_lock()
+        _enforce_lego_lock()
 
     pairs_path = os.path.join(antipodal_dir, f"{antipodal_prefix}{name_stem}.npy")
     if not os.path.isfile(pairs_path):
@@ -1113,6 +1089,7 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
             reset_to_initial()
             scene.set_lego_collision_enabled(False, body_prefix="lego")
 
+            # 设定手指起始 ctrl（扫描库给的姿态）
             try:
                 for aid, val in zip(act_ids5, qpos5):
                     data.ctrl[aid] = _ctrl_clamp(model, aid, float(val))
@@ -1121,10 +1098,11 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
                 pair_skip += 1
                 continue
 
-            for _ in range(150):
+            for _ in range(100):
                 mj.mj_step(model, data)
                 _safe_sync(viewer, show_interval, _, viewer_sleep)
 
+            # 计算对齐位姿（保持现有快速平移+旋转对齐）
             lego_p, lego_R, _ = lego_pose_from_body(model, data, "lego")
             c1_w = world_from_local(c1_b, lego_p, lego_R)
             c2_w = world_from_local(c2_b, lego_p, lego_R)
@@ -1132,17 +1110,17 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
             c2_w_gap = world_from_local(c2_b_gap, lego_p, lego_R)
 
             s2 = get_site_pos(model, data, site2)
-            base_pos = data.qpos[qadr_free:qadr_free+3].copy()
-            base_quat = data.qpos[qadr_free+3:qadr_free+7].copy()
+            base_pos = data.qpos[qadr_root:qadr_root+3].copy()
+            base_quat = data.qpos[qadr_root+3:qadr_root+7].copy()
             T = max(1, trans_steps if viewer else 1)
             delta2 = c2_w_gap - s2
             for i in range(T):
                 a = (i+1)/T
-                data.qpos[qadr_free:qadr_free+3]   = base_pos + a*delta2
-                data.qpos[qadr_free+3:qadr_free+7] = base_quat
+                data.qpos[qadr_root:qadr_root+3]   = base_pos + a*delta2
+                data.qpos[qadr_root+3:qadr_root+7] = base_quat
                 mj.mj_forward(model, data)
                 _safe_sync(viewer, show_interval, i, viewer_sleep)
-            base_pos = data.qpos[qadr_free:qadr_free+3].copy()
+            base_pos = data.qpos[qadr_root:qadr_root+3].copy()
 
             s1a = get_site_pos(model, data, site1)
             v = s1a - c2_w_gap
@@ -1162,11 +1140,11 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
                 rotN = max(1, rot_steps)
                 dR = rodrigues(axis, ang/rotN)
                 for rr in range(rotN):
-                    base_pos, base_quat = _set_free_about_point(model, data, qadr_free, base_pos, base_quat, dR, c2_w_gap)
+                    base_pos, base_quat = _set_free_about_point(model, data, qadr_root, base_pos, base_quat, dR, c2_w_gap)
                     _safe_sync(viewer, show_interval, rr, viewer_sleep)
             else:
                 R_all = rodrigues(axis, ang)
-                base_pos, base_quat = _set_free_about_point(model, data, qadr_free, base_pos, base_quat, R_all, c2_w_gap)
+                base_pos, base_quat = _set_free_about_point(model, data, qadr_root, base_pos, base_quat, R_all, c2_w_gap)
 
             s1f = get_site_pos(model, data, site1)
             s2f = get_site_pos(model, data, site2)
@@ -1181,33 +1159,49 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
             scene.set_lego_collision_enabled(True, body_prefix="lego")
 
             lock_root_pose()
+            lock_lego_pose()
 
             for pp in range(penetration_check_steps):
-                _step_with_root_lock(1)
+                _step_locked(1)
                 _safe_sync(viewer, show_interval, pp, viewer_sleep)
             min_dist_now = min_hand_lego_contact_dist(model, data, ("if_","th_","tf_"), "lego")
-
             if min_dist_now <= -0.001:
-                print(f"  → SKIP: hand-lego collision right after align (min_dist={min_dist_now:.6f})")
+                print(f"  → SKIP: hand-lego penetration after align (min_dist={min_dist_now:.6f})")
                 pair_skip += 1
                 continue
 
-            # —— 探碰
-            print(f"  [probe] start (epsF={precontact_force_eps:.3e}, epsD={precontact_dist_eps:.3e})")
-            probe_info = probe_until_both_ready()
+            print(f"  [tighten] ctrl-only start (steps={tighten_steps}, cmd={tighten_total_cmd}, signs={tighten_signs}, "
+                  f"target_eps={contact_force_eps:.3e})")
+            def _assert_lego_collision_on(model, body_prefix="lego"):
+                gids = []
+                for gid in range(model.ngeom):
+                    bid = int(model.geom_bodyid[gid])
+                    bname = mj.mj_id2name(model, mj.mjtObj.mjOBJ_BODY, bid) or ""
+                    if bname.startswith(body_prefix):
+                        gids.append(gid)
+                if not gids: 
+                    raise RuntimeError("LEGO 碰撞几何未找到")
+                for gid in gids:
+                    if model.geom_contype[gid] == 0 or model.geom_conaffinity[gid] == 0:
+                        return False
+                return True
 
-            # —— 加紧
-            print(f"  [tighten] actuator-based start (steps={tighten_steps}, cmd={tighten_total_cmd}, "
-                  f"signs={tighten_signs}, force_eps={contact_force_eps:.3e}, "
-                  f"detect_epsF={detect_force_eps:.3e}, detect_epsD={detect_dist_eps:.3e})")
-            tighten_info = tighten_by_actuators_freeze_then_together()
+            if not _assert_lego_collision_on(model, "lego"):
+                print("  [guard] LEGO 碰撞未开，已自动开启。")
+                scene.set_lego_collision_enabled(True, body_prefix="lego")
+                mj.mj_forward(model, data)
+
+            tighten_info = tighten_by_actuators_until_threshold()
 
             fn_if1, fn_th1 = sum_two_finger_normal_forces(model, data, if_substrs=if_substrs, th_substrs=th_substrs)
             if not (tighten_info.get("both_over_threshold", False) and
                     (fn_if1 >= contact_force_eps) and (fn_th1 >= contact_force_eps)):
-                print(f"  → SKIP: no both-finger contact after tighten; if={fn_if1:.3e}, th={fn_th1:.3e}, eps={contact_force_eps:.3e}")
+                print(f"  → SKIP: not reached threshold after tighten; if={fn_if1:.3e}, th={fn_th1:.3e}, eps={contact_force_eps:.3e}")
                 pair_skip += 1
                 continue
+
+            # 达到阈值：释放 LEGO，再做 6D 扰动测试
+            unlock_lego_pose()
 
             dirs = np.array([
                 [-1,0,0], [1,0,0],
@@ -1224,7 +1218,7 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
                   f"thresholds: trans={trans_thre:.6f}, angle={angle_thre:.6f}")
 
             for di, d in enumerate(dirs):
-                _set_body_pose7(model, data, "lego_freejoint", base_pose)
+                _set_body_pose7(model, data, lego_freejoint_name, base_pose)  # 把 LEGO 回到基准
                 pre = pose7_of_body(model, data, "lego")
 
                 apply_force_with_visuals("lego", d*force_N, steps=force_steps, ramp_ratio=force_ramp)
@@ -1261,7 +1255,7 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
                       f"| max_dp={worst['dp']:.6f}, max_da={worst['da']:.4f}rad")
                 pair_fail += 1
 
-            root7_world = data.qpos[qadr_free:qadr_free+7].copy()
+            root7_world = data.qpos[qadr_root:qadr_root+7].copy()
             root_body = _body_name_of_joint(model, cfg.get("freejoint", "root"))
             root7_in_lego = rel_pose7_bodyA_wrt_bodyB(model, data, root_body, "lego")
 
@@ -1276,7 +1270,6 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
                     "ctrl_dist": dist_db,
                     "ctrl_error": float(abs(dist_db - L_match)),
                     "errors_align": {"e1": e1, "e2": e2},
-                    "probe": probe_info,
                     "tighten": tighten_info,
                     "stability_per_dir": per_dir,
                     "root_pose7_in_world(xyzw)": root7_world.tolist(),
@@ -1320,7 +1313,7 @@ def eval_one_lego(cfg: Dict[str,Any], lego_name_raw: str, show=False, debug=Fals
 
 def main():
     ap = argparse.ArgumentParser(
-        description="评估: 探碰(独立) + 冻结→同步加紧(连续判稳) + 任意关节集合 + CSV 联动 + root锁定 + 外力扰动检验"
+        description="评估: 对齐 → 锁LEGO → ctrl加紧至阈值 → 放开LEGO → 6D扰动检验"
     )
     ap.add_argument("--config", default="configs/lego_eval5.yaml")
     ap.add_argument("--show", action="store_true", help="每个 LEGO 启动独立 viewer")
@@ -1341,7 +1334,7 @@ def main():
     if not lego_names:
         print("lego_list_json 为空"); sys.exit(1)
 
-    print("评估模式: 探碰(独立) → 冻结→同步加紧(连续判稳) → 外力扰动检验")
+    print("评估模式: 对齐 → 锁LEGO → ctrl加紧至阈值 → 放开LEGO → 6D扰动检验")
     print(f"FIXED_SCALE = {FIXED_SCALE}")
 
     for i, name in enumerate(lego_names, start=1):

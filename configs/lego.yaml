@@ -1,0 +1,62 @@
+xml: ../assets/left_hand1.xml
+obj_mesh_root: ../assets/object
+antipodal_dir: ../results/longshort_pairs_fc
+scan_db: ../scan_from_csv1.npy
+antipodal_prefix: "pairs_"
+out_dir: results/eval_rohand
+lego_list_json: list.json
+
+th_root_joint: th_root_link
+th_prox_joint: th_proximal_link
+th_dist_joint: th_distal_link
+if_prox_joint: if_proximal_link
+if_dist_joint: if_distal_link
+
+distal_a_body: if_distal_link
+distal_b_body: th_distal_link
+site1: if_distal_site_ball
+site2: tf_distal_site_ball
+freejoint: root
+
+th_csv: ../th_relation.csv
+if_csv: ../if_curve.csv
+csv_deg: false
+
+pairs_already_scaled: true
+
+zero_gravity: true
+friction: [0.6, 0.02, 0.001]
+default_density: 1000
+
+approach_gap: 2.0e-4  
+force_use_mass_g: true   
+force_scale: 1.0         
+r1: 0.005
+r2: 0.0055
+
+tol: 1.0e-4
+tol_fallback: 5.0e-4
+max_ctrls_per_pair: -1        
+
+trans_steps: 10
+rot_steps: 10
+
+tighten_use_if_prox: true
+tighten_use_th_prox: false
+
+penetration_check_steps: 10
+
+tighten_joints: [if_proximal_link]
+tighten_signs:  [-1]   
+tighten_cmd: 0.2 
+tighten_steps: 100
+contact_force_eps: 1
+
+force_N: 0.08
+force_steps: 300
+force_ramp_ratio: 0.2
+trans_thre: 0.01  #m
+
+angle_thre: 0.6  #rad 
+
+topk: -1 # -1 means all

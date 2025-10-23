@@ -215,6 +215,7 @@ class AllFacesSampler:
                 bb_min.astype(float), bb_max.astype(float))
 
 
+# --------------------- Hybrid Runner（随机策略 + 全局目标 + 按面配额） ---------------------
 class BatchAllFacesWithEps:
     def __init__(self,
                  config_list_json: str = "configs/list.json",
@@ -231,6 +232,7 @@ class BatchAllFacesWithEps:
                  aabb_normal_align_deg: float = 45.0,
                  device: Optional[str] = None,
                  max_workers: Optional[int] = 1,
+                 # 目标与分批
                  target_total: int = 200,
                  batch_num_rays: int = 12000,
                  max_batches: int = 100000,
